@@ -1,4 +1,5 @@
 <?php
+// Git version
 
 phpinfo();
 

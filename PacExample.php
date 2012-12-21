@@ -1,5 +1,6 @@
 <?php
 
+// Git version
 include('PachubeAPI.php');
 
 $pachube = new PachubeAPI("YOUR_API_KEY");

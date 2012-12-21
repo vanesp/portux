@@ -1,4 +1,5 @@
 <?php
+// Git version
 
 // <copyright> Copyright (c) 2012 All Rights Reserved,
 // Escurio
