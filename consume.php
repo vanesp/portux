@@ -1,0 +1,358 @@
+<?php
+
+// <copyright> Copyright (c) 2012 All Rights Reserved,
+// Escurio
+// http://www.escurio.com/
+//
+// THIS CODE AND INFORMATION ARE PROVIDED "AS IS" WITHOUT WARRANTY OF ANY 
+// KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND/OR FITNESS FOR A
+// PARTICULAR PURPOSE.
+//
+// </copyright>
+// <author>Peter van Es</author>
+// <version>1.0</version>
+// <email>vanesp@escurio.com</email>
+// <date>2012-10-18</date>
+// <summary>consume reads records from the local database and stores them remotely</summary>
+
+// Everytime consume runs, it reads all the records from the local database,
+// interprets them, and stores them in the remote database
+// when done, it deletes the records from the local database
+// in a two step process
+
+// version 1.0
+
+// remote database
+$RHOST = "192.168.1.1";
+$RDATABASE = "mydb";
+$RDBUSER = "esuser";
+$RDBPASS = "Vecht18Watch!";
+
+// local database
+$LHOST = "127.0.0.1";
+$LDATABASE = "portuxdb";
+$LDBUSER = "pruser";
+$LDBPASS = "Wel12Lekker?";
+
+$LOGFILE = "sensor.log";		// log history of actions
+
+$LEN = 128;						// records are max 128 bytes
+
+// data for Cosm updates
+
+include('PachubeAPI.php');
+$pachube = new PachubeAPI("U98DuR5xdbHiH4_30wfQSx37aT2SAKxQdTZNcWt4UytXUT0g");
+$feed = 87645;
+$user = "vanesp";
+
+// mapping of details to feed names for simple, one value sensors
+$map = array(
+	'TMP' => 'Temperature',
+	'HUMI' => 'Humidity',
+	'LIGHT' => 'Light',
+	'MOVE' => 'Motion',
+	'BAR' => 'Pressure',
+	'RAIN' => 'Rainfall',
+	'WSPD' => 'Windspeed',
+	);
+
+date_default_timezone_set('Europe/Amsterdam');
+
+// DEBUG
+$debug = false;
+
+// don't timeout!
+set_time_limit(0);
+
+// function to open the database
+function open_remote_db () {
+    global $RHOST, $RDBUSER, $RDBPASS, $RDATABASE, $LOGFILE;
+    $remote = false;
+    // Open the database
+    // Open the database connection
+    $remote = mysql_connect($RHOST, $RDBUSER, $RDBPASS);
+    if (!$remote) {
+ 	    $message = date('Y-m-d H:i') . " Remote database connection failed " . mysql_error($remote) . "\n";
+	    error_log($message, 3, $LOGFILE);
+    }
+
+    // See if we can open the database
+    $db_r = mysql_select_db ($RDATABASE, $remote);
+    if (!$db_r) {
+    	$message = date('Y-m-d H:i') . " Failed to open $RDATABASE " . mysql_error($remote) . "\n";
+    	error_log($message, 3, $LOGFILE);
+    	$remote = false;
+    }
+    return $remote;
+}
+
+function open_local_db () {
+    global $LHOST, $LDBUSER, $LDBPASS, $LDATABASE, $LOGFILE;
+    $local = false;
+    // Open the database
+    // Open the database connection
+    $local = mysql_connect($LHOST, $LDBUSER, $LDBPASS);
+    if (!$local) {
+ 	    $message = date('Y-m-d H:i') . " Local database connection failed " . mysql_error($local) . "\n";
+	    error_log($message, 3, $LOGFILE);
+    }
+
+    // See if we can open the database
+    $db_l = mysql_select_db ($LDATABASE, $local);
+    if (!$db_l) {
+    	$message = date('Y-m-d H:i') . " Failed to open $LDATABASE " . mysql_error($local) . "\n";
+    	error_log($message, 3, $LOGFILE);
+    	$local = false;
+    }
+    return $local;
+}
+
+
+// Open the database
+$remote = open_remote_db();
+if (!$remote) {
+	$message = date('Y-m-d H:i') . " Cannot open remote database " . mysql_error($remote) . "\n";
+	error_log($message, 3, $LOGFILE);
+	exit (1);
+}
+
+$local = open_local_db();
+if (!$local) {
+	$message = date('Y-m-d H:i') . " Cannot open local database " . mysql_error($local) . "\n";
+	error_log($message, 3, $LOGFILE);
+	exit (1);
+}
+
+// retrieve new, unprocessed records
+$lq = "SELECT * FROM rcvlog WHERE bP='0' ORDER BY ts";
+if ($debug) echo "Query ", $lq, "\n";
+if (($locres = mysql_query ($lq, $local))===false) {
+	$message = date('Y-m-d H:i') . " Could not read rcvlog " . mysql_error($local) . "\n";
+	error_log($message, 3, $LOGFILE);
+}
+
+$numrows = mysql_num_rows($locres);
+while ($numrows > 0) {
+	$numrows--;
+	$localrec = mysql_fetch_array($locres, MYSQL_ASSOC);
+	$localid = $localrec['id'];
+	$buf = $localrec['s'];
+	$ts = $localrec['ts'];
+
+	// create the local update query
+	$lupdq = "UPDATE rcvlog SET bP=1 WHERE id='".$localid."'";
+	// flag to see if we need to handle processed
+	$upd_done = false;	
+
+	// process another line
+	if ($debug) echo $buf;
+	
+	$field = explode(" ",$buf);
+	if ($debug) print_r ($field);
+	// see if field[0] is in our map of simple sensors
+	if (array_key_exists($field[0], $map)) {
+		// it is a simple array, the sensor type is $map[$field[0])
+		// generic sensor  sender
+		// get the sensor id and the type to select the sensor from the database
+		// field 1 = sensor id
+		// field 2 = value (integer)
+		$id = $field[1];		// id
+		$sensortype = $map[$field[0]];
+		$query = "SELECT id, sensortype, sensorscale, datastream FROM Sensor WHERE idsensor='" . $id . "' AND sensortype='".$sensortype."'";
+		if ($debug) echo "Query ", $query, "\n";
+		if (($result = mysql_query ($query, $remote))===false) {
+			$message = date('Y-m-d H:i') . " Could not read Sensor " . mysql_error($remote) . "\n";
+			error_log($message, 3, $LOGFILE);
+		}
+		$nr = mysql_num_rows($result);
+		if ($nr < 1) {
+			$message = date('Y-m-d H:i') . " sensor id not found " . $id . "\n";
+			error_log($message, 3, $LOGFILE);
+		} else {
+			// decode message depending on sensortype
+			$Record = mysql_fetch_array($result, MYSQL_ASSOC);
+			$id = $Record['id'];
+			$scale = $Record['sensorscale'];
+			// get Pachube value
+			$datastream = $Record['datastream'];
+			$value = $field[2] * $scale;
+			$insertq = "INSERT INTO Sensorlog SET pid='".$id."', tstamp=UNIX_TIMESTAMP('".$ts."'), value='".$value."'";
+			if ($debug) echo $insertq, "\n";
+			if (($res = mysql_query ($insertq, $remote))===false) {
+				$message = date('Y-m-d H:i') . " Could not insert event " . mysql_error($remote) . "\n";
+				error_log($message, 3, $LOGFILE);
+			} else {
+				$upd_done = true;	
+			}
+			// now update the sensor timestamp and battery status
+			$updateq = "UPDATE Sensor SET tstamp=UNIX_TIMESTAMP('".$ts."'), lobatt=0 WHERE id='".$id."'";
+			if ($debug) echo $updateq, "\n";
+			if (($res = mysql_query ($updateq, $remote))===false) {
+				$message = date('Y-m-d H:i') . " Could not update Sensor " . mysql_error($remote) . "\n";
+				error_log($message, 3, $LOGFILE);
+			}
+			// and update Pachube / Cosm
+			$data = '"' . $value . '"';
+			if ($datastream != '') {
+				$result = $pachube->updateDataStream("csv", $feed, $datastream, $data);
+			}
+		}
+	} // if TMP
+
+	if (strpos($buf, "ELEC") === 0) {
+		// generic electricity sender
+		// field 0 = ELEC
+		// field 1 = instantaneous power
+		// field 2 = pulse count since last time
+		$query = "SELECT id, sensorscale, datastream FROM Sensor WHERE sensortype='Electricity'";
+		// there should be only one...
+		if ($debug) echo "Query ", $query, "\n";
+		if (($result = mysql_query ($query, $remote))===false) {
+			$message = date('Y-m-d H:i') . " Could not read Sensor " . mysql_error($remote) . "\n";
+			error_log($message, 3, $LOGFILE);
+		}
+		$nr = mysql_num_rows($result);
+		if ($nr < 1) {
+			$message = date('Y-m-d H:i') . " Electricity sensor not found " . $id . "\n";
+			error_log($message, 3, $LOGFILE);
+		} else {
+			// decode message depending on sensortype
+			$Record = mysql_fetch_array($result, MYSQL_ASSOC);
+			$id = $Record['id'];
+			$scale = $Record['sensorscale'];
+			// get Pachube value
+			$datastream = $Record['datastream'];
+			$power = $field[1] * $scale;
+			$pulse = $field[2];
+			$insertq = "INSERT INTO Sensorlog SET pid='".$id."', tstamp=UNIX_TIMESTAMP('".$ts."'), value='".$power."', count='".$pulse."'";
+			if ($debug) echo $insertq, "\n";
+			if (($res = mysql_query ($insertq, $remote))===false) {
+				$message = date('Y-m-d H:i') . " Could not insert event " . mysql_error($remote) . "\n";
+				error_log($message, 3, $LOGFILE);
+			} else {
+				$upd_done = true;	
+			}
+			// now update the sensor timestamp and battery status
+			$updateq = "UPDATE Sensor SET tstamp=UNIX_TIMESTAMP('".$ts."'), lobatt=0, cum_elec_pulse=cum_elec_pulse+".$pulse." WHERE id='".$id."'";
+			if ($debug) echo $updateq, "\n";
+			if (($res = mysql_query ($updateq, $remote))===false) {
+				$message = date('Y-m-d H:i') . " Could not update Sensor " . mysql_error($remote) . "\n";
+				error_log($message, 3, $LOGFILE);
+			}
+			// and update Pachube / Cosm
+			if ($datastream != '') {
+				$data = '"' . $power . '"';
+				$result = $pachube->updateDataStream("csv", $feed, $datastream, $data);
+			}
+		}
+	} // if ELEC
+
+	if (strpos($buf, "GNR") === 0) {
+		// generic node receiver
+		// get the room id to select the sensor type from the database
+		// field 0 = GNR
+		// field 1 = header
+		$roomid = $field[1] & 0x1F;		// node from the header
+		
+		$query = "SELECT id, sensortype, datastream FROM Sensor WHERE idroom='" . $roomid . "'";
+		if ($debug) echo "Query ", $query, "\n";
+		if (($result = mysql_query ($query, $remote))===false) {
+			$message = date('Y-m-d H:i') . " Could not read Sensor " . mysql_error($remote) . "\n";
+			error_log($message, 3, $LOGFILE);
+		}
+
+		$nr = mysql_num_rows($result);
+		if ($nr < 1) {
+			$message = date('Y-m-d H:i') . " idroom not found " . $roomid . "\n";
+			error_log($message, 3, $LOGFILE);
+		} else {
+			// decode message depending on sensortype
+			$Record = mysql_fetch_array($result, MYSQL_ASSOC);
+			$id = $Record['id'];
+			$type = $Record['sensortype'];
+			// get Pachube value
+			$datastream = $Record['datastream'];
+			
+			if (strstr($type, "RNR")) {
+				// RNR content
+				// it will be:
+				// 1 - header (with idroom in it - if ack is set, then we have a PIR trigger
+				// 2 - lightlevel
+				// 3 - moved
+				// 4 - humidity
+				// 5 & 6 - signed integer value, temp
+				// 7 - lobat
+				// Room node. PIR is on if ACK is set
+				$pir = (($field[1] & 0x20) == 0x20); 							
+				$light = round ($field[2] / 2.55, 0);		// lightness 0..100%
+				$moved = $field[3] & 0x01;
+				$humid = $field[4] & 0x7F;					// bottom 7 bits only
+				// temperature is two values, little endian, so least significant byte first
+				// do this to preserve signs
+				$binarydata = pack("C2", $field[5], $field[6]);
+				$out = unpack("sshort/", $binarydata);
+				$t1 = $out['short'];
+				// $t1 = $field[5] + $field[6] * 256;
+				$temp = $t1 / 10;		// divide by 10 
+				$lobat = $field[7] & 0x01;
+				if ($pir) {
+					// it is a PIR alert
+					$insertq = "INSERT INTO Motionlog SET pid='".$id."', tstamp=UNIX_TIMESTAMP('".$ts."'), movement='1'";
+				} else {
+					// regular data update 	
+					$insertq = "INSERT INTO Roomlog SET pid='".$id."', tstamp=UNIX_TIMESTAMP('".$ts."'), light='".$light."', humidity='".$humid."', temp='".$temp."'";
+
+				}
+				if ($debug) echo $insertq, "\n";
+				if (($res = mysql_query ($insertq, $remote))===false) {
+					$message = date('Y-m-d H:i') . " Could not insert event " . mysql_error($remote) . "\n";
+					error_log($message, 3, $LOGFILE);
+				} else {
+					$upd_done = true;	
+
+					// and update Pachube / Cosm
+					if (!$pir && ($datastream != '')) {
+						// update Pachube/Cosm
+						$data = '"' . $light . '"';
+						$result = $pachube->updateDataStream("csv", $feed, $datastream.'_1' , $data);
+						$data = '"' . $humid . '"';
+						$result = $pachube->updateDataStream("csv", $feed, $datastream.'_2' , $data);
+						$data = '"' . $temp . '"';
+						$result = $pachube->updateDataStream("csv", $feed, $datastream.'_3' , $data);
+						
+					}
+				}
+				// now update the sensor timestamp and battery status
+				$updateq = "UPDATE Sensor SET tstamp=UNIX_TIMESTAMP('".$ts."'), lobatt='".$lobat."' WHERE id='".$id."'";
+				if ($debug) echo $updateq, "\n";
+				if (($res = mysql_query ($updateq, $remote))===false) {
+					$message = date('Y-m-d H:i') . " Could not update Sensor " . mysql_error($remote) . "\n";
+					error_log($message, 3, $LOGFILE);
+				}
+			} // if RNR
+		} // if numrows
+	} // if GNR
+	
+	if ($upd_done) {
+		// updated on remote database, now fix local database
+		if ($debug) echo $lupdq, "\n";
+		if (($res = mysql_query ($lupdq, $local))===false) {
+			$message = date('Y-m-d H:i') . " Could not update local rcvlog " . mysql_error($local) . "\n";
+			error_log($message, 3, $LOGFILE);
+		}
+	}
+	
+} // while
+
+// delete processed records
+$lq = "DELETE FROM rcvlog WHERE bP='1'";
+if ($debug) echo "Query ", $lq, "\n";
+if (($result = mysql_query ($lq, $local))===false) {
+	$message = date('Y-m-d H:i') . " Could not delete local rcvlog " . mysql_error($local) . "\n";
+	error_log($message, 3, $LOGFILE);
+}
+
+mysql_close ($remote);
+mysql_close ($local);
+?>
