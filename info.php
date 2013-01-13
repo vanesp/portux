@@ -1,6 +1,0 @@
-<?php
-// Git version
-
-phpinfo();
-
-?>
