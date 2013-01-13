@@ -178,6 +178,16 @@ while ($numrows > 0) {
 			// get Pachube value
 			$datastream = $Record['datastream'];
 			$value = $field[2] * $scale;
+			// if it's temperature then we have special processing for IT+ sensors
+			if (strstr($sensortype, "Temperature")) {
+				// if $field[2] > 1280 then negative temperature... but only for IT+ sensors
+				// the scale factor ensures this
+				if ($field[2] > 128/$scale) {
+					$value = (128/$scale - $field[2]) * $scale;
+				} else {
+					$value = $field[2] * $scale;
+				}
+			}
 			$insertq = "INSERT INTO Sensorlog SET pid='".$id."', tstamp=UNIX_TIMESTAMP('".$ts."'), value='".$value."'";
 			if ($debug) echo $insertq, "\n";
 			if (($res = mysql_query ($insertq, $remote))===false) {
