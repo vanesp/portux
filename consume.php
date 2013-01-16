@@ -12,9 +12,9 @@
 //
 // </copyright>
 // <author>Peter van Es</author>
-// <version>1.0</version>
+// <version>1.1</version>
 // <email>vanesp@escurio.com</email>
-// <date>2012-10-18</date>
+// <date>2013-01-16</date>
 // <summary>consume reads records from the local database and stores them remotely</summary>
 
 // Everytime consume runs, it reads all the records from the local database,
@@ -23,6 +23,8 @@
 // in a two step process
 
 // version 1.0
+
+// version 1.1 - publication to a Redis database of up-to-date information is performed.
 
 // remote database
 $RHOST = "192.168.1.1";
@@ -46,6 +48,21 @@ include('PachubeAPI.php');
 $pachube = new PachubeAPI("U98DuR5xdbHiH4_30wfQSx37aT2SAKxQdTZNcWt4UytXUT0g");
 $feed = 87645;
 $user = "vanesp";
+
+require 'vendor/autoload.php';
+
+// prepend a base path if Predis is not present in the "include_path".
+// require 'Predis/Autoloader.php';
+
+Predis\Autoloader::register();
+
+$redis = new Predis\Client(array(
+    'scheme' => 'tcp',
+    'host'   => 'rpi1.local',
+    'port'   => 6379,
+    // no timeouts on socket
+    'read_write_timeout' => 0,
+));
 
 // mapping of details to feed names for simple, one value sensors
 $map = array(
@@ -160,7 +177,7 @@ while ($numrows > 0) {
 		// field 2 = value (integer)
 		$id = $field[1];		// id
 		$sensortype = $map[$field[0]];
-		$query = "SELECT id, sensortype, sensorscale, datastream FROM Sensor WHERE idsensor='" . $id . "' AND sensortype='".$sensortype."'";
+		$query = "SELECT id, sensortype, sensorscale, datastream, location FROM Sensor WHERE idsensor='" . $id . "' AND sensortype='".$sensortype."'";
 		if ($debug) echo "Query ", $query, "\n";
 		if (($result = mysql_query ($query, $remote))===false) {
 			$message = date('Y-m-d H:i') . " Could not read Sensor " . mysql_error($remote) . "\n";
@@ -177,6 +194,9 @@ while ($numrows > 0) {
 			$scale = $Record['sensorscale'];
 			// get Pachube value
 			$datastream = $Record['datastream'];
+			$location = $Record['location'];
+			// create the channel name for Pub/Sub
+			$channel = 'portux.'.$location.'.'.$sensortype;
 			$value = $field[2] * $scale;
 			// if it's temperature then we have special processing for IT+ sensors
 			if (strstr($sensortype, "Temperature")) {
@@ -203,6 +223,9 @@ while ($numrows > 0) {
 				$message = date('Y-m-d H:i') . " Could not update Sensor " . mysql_error($remote) . "\n";
 				error_log($message, 3, $LOGFILE);
 			}
+			// update Redis
+			if ($debug) echo "Redis publishing ".$channel.": ".$value."\n";
+			$redis->publish($channel, $value);
 			// and update Pachube / Cosm
 			$data = '"' . $value . '"';
 			if ($datastream != '') {
@@ -216,7 +239,7 @@ while ($numrows > 0) {
 		// field 0 = ELEC
 		// field 1 = instantaneous power
 		// field 2 = pulse count since last time
-		$query = "SELECT id, sensorscale, datastream FROM Sensor WHERE sensortype='Electricity'";
+		$query = "SELECT id, sensortype, sensorscale, datastream, location FROM Sensor WHERE sensortype='Electricity'";
 		// there should be only one...
 		if ($debug) echo "Query ", $query, "\n";
 		if (($result = mysql_query ($query, $remote))===false) {
@@ -232,6 +255,10 @@ while ($numrows > 0) {
 			$Record = mysql_fetch_array($result, MYSQL_ASSOC);
 			$id = $Record['id'];
 			$scale = $Record['sensorscale'];
+			$location = $Record['location'];
+			$sensortype = $Record['sensortype'];
+			// create the channel name for Pub/Sub
+			$channel = 'portux.'.$location.'.'.$sensortype;
 			// get Pachube value
 			$datastream = $Record['datastream'];
 			$power = $field[1] * $scale;
@@ -251,6 +278,10 @@ while ($numrows > 0) {
 				$message = date('Y-m-d H:i') . " Could not update Sensor " . mysql_error($remote) . "\n";
 				error_log($message, 3, $LOGFILE);
 			}
+			// update Redis
+			if ($debug) echo "Redis publishing ".$channel.": ".$power."\n";
+			$redis->publish($channel, $power);
+
 			// and update Pachube / Cosm
 			if ($datastream != '') {
 				$data = '"' . $power . '"';
@@ -266,7 +297,7 @@ while ($numrows > 0) {
 		// field 1 = header
 		$roomid = $field[1] & 0x1F;		// node from the header
 		
-		$query = "SELECT id, sensortype, datastream FROM Sensor WHERE idroom='" . $roomid . "'";
+		$query = "SELECT id, sensortype, datastream, location FROM Sensor WHERE idroom='" . $roomid . "'";
 		if ($debug) echo "Query ", $query, "\n";
 		if (($result = mysql_query ($query, $remote))===false) {
 			$message = date('Y-m-d H:i') . " Could not read Sensor " . mysql_error($remote) . "\n";
@@ -282,6 +313,9 @@ while ($numrows > 0) {
 			$Record = mysql_fetch_array($result, MYSQL_ASSOC);
 			$id = $Record['id'];
 			$type = $Record['sensortype'];
+			$location = $Record['location'];
+			// create the channel name for Pub/Sub
+			$channel = 'portux.'.$location.'.';
 			// get Pachube value
 			$datastream = $Record['datastream'];
 			
@@ -321,6 +355,19 @@ while ($numrows > 0) {
 					error_log($message, 3, $LOGFILE);
 				} else {
 					$upd_done = true;	
+
+					// update Redis
+					if ($pir) {
+						// Motion records should be sent immediately, so
+						// they are sent by rcvsend.php
+						// if ($debug) echo "Redis publishing ".$channel.": 1\n";
+						// $redis->publish($channel.'Motion', 1);
+					} else {
+						if ($debug) echo "Redis publishing ".$channel."RNR \n";
+						$redis->publish($channel.'Light', $light);
+						$redis->publish($channel.'Humidity', $humid);
+						$redis->publish($channel.'Temperature', $temp);
+					}
 
 					// and update Pachube / Cosm
 					if (!$pir && ($datastream != '')) {

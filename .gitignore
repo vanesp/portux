@@ -1,11 +1,14 @@
 *~
 *.log
 .*
+mountnfs
+*.lock
 
 # Object files
 *.o
 
 # Libraries
+vendor/
 *.lib
 *.a
 

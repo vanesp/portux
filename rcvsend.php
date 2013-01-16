@@ -12,13 +12,13 @@
 //
 // </copyright>
 // <author>Peter van Es</author>
-// <version>1.0</version>
+// <version>2.1</version>
 // <email>vanesp@escurio.com</email>
-// <date>2012-10-18</date>
+// <date>2013-01-16</date>
 // <summary>rcvsend receives text from a jeenode and stores records in a local database
 //          text received over the serial line is transmitted to the jeenode</summary>
 
-// version 2.0
+// version 2.1	-- PIR motion records are sent directly to the Redis channel
 
 // set some variables
 $HOST = "127.0.0.1";
@@ -60,8 +60,6 @@ function opendb () {
     return $link;
 }
 
-
-
 // set to the correct serial parameters
 exec('stty -F '.$device.' 57600');
 
@@ -73,12 +71,33 @@ if($handle === FALSE) {
 }
 
 // Open the database
-$link = opendb();
-if (!$link) {
+$i = 0;
+while (!($link = opendb()) && $i<10) {
+	sleep(10);
+	if ($debug) echo "Trying database attempt ".$i."\n";
+	$i++;
+}
+
+if ($i>=10) {
 	$message = date('Y-m-d H:i') . " Cannot open database " . mysql_error($link) . "\n";
 	error_log($message, 3, $LOGFILE);
-	exit (1);
+	exit(1);
 }
+
+require 'vendor/autoload.php';
+
+// prepend a base path if Predis is not present in the "include_path".
+// require 'Predis/Autoloader.php';
+
+Predis\Autoloader::register();
+
+$redis = new Predis\Client(array(
+    'scheme' => 'tcp',
+    'host'   => 'rpi1.local',
+    'port'   => 6379,
+    // no timeouts on socket
+    'read_write_timeout' => 0,
+));
 
 if ($debug) echo "Ready to receive...\n";
 while (($buf = fgets($handle, $LEN)) !== false) {
@@ -94,6 +113,23 @@ while (($buf = fgets($handle, $LEN)) !== false) {
 		continue;
             };
 
+            // check if it is a motion event...
+            if (strpos($buf, "GNR") === 0) {
+            	$field = explode(" ",$buf);
+        	if ($debug) print_r ($field);
+        	// field[0] = GNR
+        	// field[1] = room id
+		$roomid = $field[1] & 0x1F;		// node from the header
+		// Room node. PIR is on if ACK is set
+		$pir = (($field[1] & 0x20) == 0x20);
+		if ($debug) echo "Publishing motion event.\n"; 							
+        	$channel = 'portux.'.$roomid.'.Motion';
+        	if ($pir) {
+		    $redis->publish($channel, 1);
+                }
+            }
+
+            // and insert into the database buffer        	
 	    $insertq = "INSERT INTO rcvlog SET ts=NOW(), s='".$buf."', bP=0";
 	    if ($debug) echo $insertq, "\n";
 	    if (($res = mysql_query ($insertq, $link))===false) {
