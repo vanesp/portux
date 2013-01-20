@@ -38,40 +38,8 @@ $debug = false;
 // don't timeout!
 set_time_limit(0);
 
-require 'vendor/autoload.php';
-
-// prepend a base path if Predis is not present in the "include_path".
-// require 'Predis/Autoloader.php';
-Predis\Autoloader::register();
-
-$redis = new Predis\Client(array(
-    'scheme' => 'tcp',
-    'host'   => 'rpi1.local',
-    'port'   => 6379,
-    // no timeouts on socket
-    'read_write_timeout' => 0,
-));
-
-// function to open Redis
-function openredis() {
-    global $redis;
-    // modified to catch exceptions...
-    try {
-        $redis = new Predis\Client(array(
-            'scheme' => 'tcp',
-            'host'   => 'rpi1.local',
-            'port'   => 6379,
-            // no timeouts on socket
-            'read_write_timeout' => 0,
-        ));
-        if ($debug) echo "Succesfully connected to Redis\n";
-    }
-    catch (Exception $e) {
-        $message = date('Y-m-d H:i') . " Cannot connect to Redis " . $e->getMessage() . "\n";
-        error_log($message, 3, $LOGFILE);
-        exit(1);
-    }
-}
+// include Redis pub sub functionality
+include('redis.php');
 
 // function to open the database
 function opendb () {
@@ -137,25 +105,30 @@ while (($buf = fgets($handle, $LEN)) !== false) {
         if (strpos($buf, "GNR") === 0) {
             $field = explode(" ",$buf);
             if ($debug) print_r ($field);
-                // field[0] = GNR
-                // field[1] = room id
-                $roomid = $field[1] & 0x1F;		// node from the header
-                // Room node. PIR is on if ACK is set
-                $pir = (($field[1] & 0x20) == 0x20);
-                if ($debug) echo "Publishing motion event.\n"; 							
-                $channel = 'portux.'.$roomid.'.Motion';
-                if ($pir) {
-                    try {
-                        $redis->publish($channel, 1);
-                    }
-                    catch (Exception $e) {
-                        $message = date('Y-m-d H:i') . " Cannot publish to Redis " . $e->getMessage() . "\n";
-                        error_log($message, 3, $LOGFILE);
-                        // reinitialise the connection
-                        openredis();
-                    }
+            // field[0] = GNR
+            // field[1] = room id
+            $roomid = $field[1] & 0x1F;		// node from the header
+            // Room node. PIR is on if ACK is set
+            $pir = (($field[1] & 0x20) == 0x20);
+            if ($pir) {
+                if ($debug) echo "Publishing motion event room:".$roomid."\n"; 							
+                
+                // update Redis using socketstream message
+                $msg = new PubMessage;
+                $msg->setParams('Motion', $roomid, '',1);
+                // check if redis is still connected
+                if (!$redis->isConnected()) {
+                    $redis->connect();
                 }
-         }
+                try {
+                    $redis->publish('ss:event', json_encode($msg));
+                }
+                catch (Exception $e) {
+                    $message = date('Y-m-d H:i') . " Cannot publish to Redis " . $e->getMessage() . "\n";
+                    error_log($message, 3, $LOGFILE);
+                }
+            }
+        }
 
         // and insert into the database buffer        	
         $insertq = "INSERT INTO rcvlog SET ts=NOW(), s='".$buf."', bP=0";

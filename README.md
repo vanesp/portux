@@ -32,7 +32,11 @@ the standard port.
 
 The subscribe messages are of the form:
 
-    <location>.<sensortype> <value>
+    <sensortype>.<location> <value>
 
 Where RNR sensors are split into <sensortype> Temperature / Humidity / Motion
 and <value> needs no more calculation.
+
+The order is changed from the previous version because this allows easier subscription to e.g. all
+motion events, or all temperature events.
+

@@ -49,20 +49,8 @@ $pachube = new PachubeAPI("U98DuR5xdbHiH4_30wfQSx37aT2SAKxQdTZNcWt4UytXUT0g");
 $feed = 87645;
 $user = "vanesp";
 
-require 'vendor/autoload.php';
-
-// prepend a base path if Predis is not present in the "include_path".
-// require 'Predis/Autoloader.php';
-
-Predis\Autoloader::register();
-
-$redis = new Predis\Client(array(
-    'scheme' => 'tcp',
-    'host'   => 'rpi1.local',
-    'port'   => 6379,
-    // no timeouts on socket
-    'read_write_timeout' => 0,
-));
+// include Redis pub sub functionality
+include('redis.php');
 
 // mapping of details to feed names for simple, one value sensors
 $map = array(
@@ -177,7 +165,7 @@ while ($numrows > 0) {
 		// field 2 = value (integer)
 		$id = $field[1];		// id
 		$sensortype = $map[$field[0]];
-		$query = "SELECT id, sensortype, sensorscale, datastream, location FROM Sensor WHERE idsensor='" . $id . "' AND sensortype='".$sensortype."'";
+		$query = "SELECT id, sensortype, sensorscale, datastream, sensorquantity, location FROM Sensor WHERE idsensor='" . $id . "' AND sensortype='".$sensortype."'";
 		if ($debug) echo "Query ", $query, "\n";
 		if (($result = mysql_query ($query, $remote))===false) {
 			$message = date('Y-m-d H:i') . " Could not read Sensor " . mysql_error($remote) . "\n";
@@ -195,8 +183,7 @@ while ($numrows > 0) {
 			// get Pachube value
 			$datastream = $Record['datastream'];
 			$location = $Record['location'];
-			// create the channel name for Pub/Sub
-			$channel = 'portux.'.$location.'.'.$sensortype;
+			$quantity = $Record['sensorquantity'];
 			$value = $field[2] * $scale;
 			// if it's temperature then we have special processing for IT+ sensors
 			if (strstr($sensortype, "Temperature")) {
@@ -213,6 +200,10 @@ while ($numrows > 0) {
 			if (($res = mysql_query ($insertq, $remote))===false) {
 				$message = date('Y-m-d H:i') . " Could not insert event " . mysql_error($remote) . "\n";
 				error_log($message, 3, $LOGFILE);
+                if (mysql_errno($remote) === 1062) {
+                    // it is a Duplicate Key message... delete the record anyway by setting $upd_done to true
+                    $upd_done = true;
+                } 
 			} else {
 				$upd_done = true;	
 			}
@@ -223,9 +214,11 @@ while ($numrows > 0) {
 				$message = date('Y-m-d H:i') . " Could not update Sensor " . mysql_error($remote) . "\n";
 				error_log($message, 3, $LOGFILE);
 			}
-			// update Redis
-			if ($debug) echo "Redis publishing ".$channel.": ".$value."\n";
-			$redis->publish($channel, $value);
+			// update Redis using socketstream message
+			$msg = new PubMessage;
+            $msg->setParams($sensortype, $location, $quantity, $value);
+			if ($debug) echo "Redis publishing ".$sensortype." ".$location.": ".$value."\n";
+			$redis->publish('ss:event', json_encode($msg));
 			// and update Pachube / Cosm
 			$data = '"' . $value . '"';
 			if ($datastream != '') {
@@ -258,7 +251,7 @@ while ($numrows > 0) {
 			$location = $Record['location'];
 			$sensortype = $Record['sensortype'];
 			// create the channel name for Pub/Sub
-			$channel = 'portux.'.$location.'.'.$sensortype;
+			$channel = 'portux.'.$sensortype.'.'.$location;
 			// get Pachube value
 			$datastream = $Record['datastream'];
 			$power = $field[1] * $scale;
@@ -268,6 +261,10 @@ while ($numrows > 0) {
 			if (($res = mysql_query ($insertq, $remote))===false) {
 				$message = date('Y-m-d H:i') . " Could not insert event " . mysql_error($remote) . "\n";
 				error_log($message, 3, $LOGFILE);
+                if (mysql_errno($remote) === 1062) {
+                    // it is a Duplicate Key message... delete the record anyway by setting $upd_done to true
+                    $upd_done = true;
+                } 
 			} else {
 				$upd_done = true;	
 			}
@@ -278,9 +275,11 @@ while ($numrows > 0) {
 				$message = date('Y-m-d H:i') . " Could not update Sensor " . mysql_error($remote) . "\n";
 				error_log($message, 3, $LOGFILE);
 			}
-			// update Redis
-			if ($debug) echo "Redis publishing ".$channel.": ".$power."\n";
-			$redis->publish($channel, $power);
+			// update Redis using socketstream message
+			$msg = new PubMessage;
+            $msg->setParams($sensortype, $location, 'W', $power);
+			if ($debug) echo "Redis publishing ".$sensortype." ".$location.": ".$value."\n";
+			$redis->publish('ss:event', json_encode($msg));
 
 			// and update Pachube / Cosm
 			if ($datastream != '') {
@@ -314,8 +313,6 @@ while ($numrows > 0) {
 			$id = $Record['id'];
 			$type = $Record['sensortype'];
 			$location = $Record['location'];
-			// create the channel name for Pub/Sub
-			$channel = 'portux.'.$location.'.';
 			// get Pachube value
 			$datastream = $Record['datastream'];
 			
@@ -353,6 +350,10 @@ while ($numrows > 0) {
 				if (($res = mysql_query ($insertq, $remote))===false) {
 					$message = date('Y-m-d H:i') . " Could not insert event " . mysql_error($remote) . "\n";
 					error_log($message, 3, $LOGFILE);
+					if (mysql_errno($remote) === 1062) {
+					    // it is a Duplicate Key message... delete the record anyway by setting $upd_done to true
+					    $upd_done = true;
+					} 
 				} else {
 					$upd_done = true;	
 
@@ -360,13 +361,16 @@ while ($numrows > 0) {
 					if ($pir) {
 						// Motion records should be sent immediately, so
 						// they are sent by rcvsend.php
-						// if ($debug) echo "Redis publishing ".$channel.": 1\n";
-						// $redis->publish($channel.'Motion', 1);
 					} else {
-						if ($debug) echo "Redis publishing ".$channel."RNR \n";
-						$redis->publish($channel.'Light', $light);
-						$redis->publish($channel.'Humidity', $humid);
-						$redis->publish($channel.'Temperature', $temp);
+                        // update Redis using socketstream message
+                        $msg = new PubMessage;
+                        if ($debug) echo "Redis publishing RNR ".$location."\n";
+                        $msg->setParams('Light', $location, '%', $light);
+                        $redis->publish('ss:event', json_encode($msg));
+                        $msg->setParams('Humidity', $location, '%', $humid);
+                        $redis->publish('ss:event', json_encode($msg));
+                        $msg->setParams('Temperature', $location, '°C', $temp);
+                        $redis->publish('ss:event', json_encode($msg));
 					}
 
 					// and update Pachube / Cosm
