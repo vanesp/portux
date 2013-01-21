@@ -32,7 +32,11 @@ the standard port.
 
 The subscribe messages are of the form:
 
-    <sensortype>.<location> <value>
+    {
+        "t" : "all",
+        "e" : "portux",
+        "p" : [ 'type', 'location', 'quantity','value']
+    }
 
 Where RNR sensors are split into <sensortype> Temperature / Humidity / Motion
 and <value> needs no more calculation.
@@ -40,3 +44,24 @@ and <value> needs no more calculation.
 The order is changed from the previous version because this allows easier subscription to e.g. all
 motion events, or all temperature events.
 
+### Transforming to a Daemon
+
+Using System_Daemon, a PHP class that allows developers to create their own daemon 
+applications on Linux systems. The class is focussed entirely on creating & 
+spawning standalone daemons
+
+More info at:
+
+- [Blog Article: Create daemons in PHP][1]
+
+  [1]: http://kevin.vanzonneveld.net/techblog/article/create_daemons_in_php/
+  
+Note that a file called rcvsend needs to be copied to /etc/init.d to start it up automatically,
+and it needs to be initialised by root as:
+
+    update-rc.d rcvsend defaults
+
+To remove, execute
+
+    update-rc.d rcvsend remove
+    

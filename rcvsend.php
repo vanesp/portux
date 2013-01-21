@@ -12,20 +12,67 @@
 //
 // </copyright>
 // <author>Peter van Es</author>
-// <version>2.1</version>
+// <version>2.2</version>
 // <email>vanesp@escurio.com</email>
-// <date>2013-01-16</date>
+// <date>2013-01-20</date>
 // <summary>rcvsend receives text from a jeenode and stores records in a local database
 //          text received over the serial line is transmitted to the jeenode</summary>
 
 // version 2.1	-- PIR motion records are sent directly to the Redis channel
+
+// version 2.2  -- a class added to daemonize this program
+
+/**
+ * System_Daemon Example Code
+ * 
+ * If you run this code successfully, a daemon will be spawned
+ * and stopped directly. You should find a log enty in 
+ * /var/log/simple.log
+ * 
+ */
+
+// Make it possible to test in source directory
+// This is for PEAR developers only
+ini_set('include_path', ini_get('include_path').':..');
+
+// Include Class
+error_reporting(E_ALL);
+require_once "System/Daemon.php";
+
+// No PEAR, run standalone
+System_Daemon::setOption("usePEAR", false);
+
+// Setup
+$options = array(
+    'appName' => 'rcvsend',
+    'appDir' => dirname(__FILE__),
+    'appDescription' => 'Receives data from Arduino and stores it in MySQL database',
+    'authorName' => 'Peter van Es',
+    'authorEmail' => 'vanesp@escurio.com',
+    'sysMaxExecutionTime' => '0',
+    'sysMaxInputTime' => '0',
+    'sysMemoryLimit' => '1024M',
+    'appRunAsGID' => 20,            // dialout group for /dev/ttyS1
+    'appRunAsUID' => 1000,
+);
+
+System_Daemon::setOptions($options);
+System_Daemon::log(System_Daemon::LOG_INFO, "Daemon not yet started so this ".
+    "will be written on-screen");
+
+// Spawn Deamon!
+System_Daemon::start();
+System_Daemon::log(System_Daemon::LOG_INFO, "Daemon: '".
+    System_Daemon::getOption("appName").
+    "' spawned! This will be written to ".
+    System_Daemon::getOption("logLocation"));
+
 
 // set some variables
 $HOST = "127.0.0.1";
 $DATABASE = "portuxdb";
 $DBUSER = "pruser";
 $DBPASS = "Wel12Lekker?";
-$LOGFILE = "sensor.log";		// log history of actions
 
 $device = "/dev/ttyS1";
 $LEN = 128;						// records are max 128 bytes
@@ -43,21 +90,21 @@ include('redis.php');
 
 // function to open the database
 function opendb () {
-    global $HOST, $DBUSER, $DBPASS, $DATABASE, $LOGFILE;
+    global $HOST, $DBUSER, $DBPASS, $DATABASE;
     $link = false;
     // Open the database
     // Open the database connection
     $link = mysql_connect($HOST, $DBUSER, $DBPASS);
     if (!$link) {
  	    $message = date('Y-m-d H:i') . " Database connection failed " . mysql_error($link) . "\n";
-	    error_log($message, 3, $LOGFILE);
+        System_Daemon::notice($message);
     }
 
     // See if we can open the database
     $db = mysql_select_db ($DATABASE, $link);
     if (!$db) {
     	$message = date('Y-m-d H:i') . " Failed to open $DATABASE " . mysql_error($link) . "\n";
-    	error_log($message, 3, $LOGFILE);
+        System_Daemon::notice($message);
     	$link = false;
     }
     return $link;
@@ -70,28 +117,31 @@ exec('stty -F '.$device.' 57600');
 $handle = fopen ($device, "r");
 if($handle === FALSE) {
 	$message = date('Y-m-d H:i') . " Failed to open device " .$device. "\n";
-	error_log($message, 3, $LOGFILE);
+    System_Daemon::notice($message);
+    // No point in continuing
+    System_Daemon::stop();
+    exit(1);
 }
 
 // Open the database
 $i = 0;
 while (!($link = opendb()) && $i<10) {
 	sleep(10);
-	if ($debug) echo "Trying database attempt ".$i."\n";
+	if ($debug) System_Daemon::info("Trying database attempt ".$i."\n");
 	$i++;
 }
 
 if ($i>=10) {
 	$message = date('Y-m-d H:i') . " Cannot open database " . mysql_error($link) . "\n";
-	error_log($message, 3, $LOGFILE);
+    System_Daemon::notice($message);
 	exit(1);
 }
 
-if ($debug) echo "Ready to receive...\n";
+if ($debug) System_Daemon::info("Ready to receive...\n");
 while (($buf = fgets($handle, $LEN)) !== false) {
     if (strlen($buf) > 1) {
         // process another line
-        if ($debug) echo $buf;
+        if ($debug) System_Daemon::info($buf);
         if (strpos($buf, "[")) {
             // skip this line, it tells us the program version
             continue;
@@ -111,7 +161,7 @@ while (($buf = fgets($handle, $LEN)) !== false) {
             // Room node. PIR is on if ACK is set
             $pir = (($field[1] & 0x20) == 0x20);
             if ($pir) {
-                if ($debug) echo "Publishing motion event room:".$roomid."\n"; 							
+                if ($debug) System_Daemon::info("Publishing motion event room:".$roomid."\n"); 							
                 
                 // update Redis using socketstream message
                 $msg = new PubMessage;
@@ -125,17 +175,17 @@ while (($buf = fgets($handle, $LEN)) !== false) {
                 }
                 catch (Exception $e) {
                     $message = date('Y-m-d H:i') . " Cannot publish to Redis " . $e->getMessage() . "\n";
-                    error_log($message, 3, $LOGFILE);
+                    System_Daemon::notice($message);
                 }
             }
         }
 
         // and insert into the database buffer        	
         $insertq = "INSERT INTO rcvlog SET ts=NOW(), s='".$buf."', bP=0";
-        if ($debug) echo $insertq, "\n";
+        if ($debug) System_Daemon::info($insertq."\n");
         if (($res = mysql_query ($insertq, $link))===false) {
             $message = date('Y-m-d H:i') . " Could not insert rcvlog " . mysql_error($link) . "\n";
-            error_log($message, 3, $LOGFILE);
+            System_Daemon::notice($message);
         }
     }
 } // while
@@ -145,8 +195,11 @@ mysql_close ($link);
 
 if (!feof($handle)) {
 	$message = date('Y-m-d H:i') . " fgets failed\n";
-	error_log($message, 3, $LOGFILE);
+    System_Daemon::notice($message);
 }
 
 fclose($handle);
+
+System_Daemon::stop();
+
 ?>
