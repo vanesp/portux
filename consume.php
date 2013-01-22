@@ -194,6 +194,8 @@ while ($numrows > 0) {
 				} else {
 					$value = $field[2] * $scale;
 				}
+				// somehow quantity does not come out of database correctly for temperature, so overrride
+                $quantity = '°C';
 			}
 			$insertq = "INSERT INTO Sensorlog SET pid='".$id."', tstamp=UNIX_TIMESTAMP('".$ts."'), value='".$value."'";
 			if ($debug) echo $insertq, "\n";
