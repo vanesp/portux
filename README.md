@@ -59,7 +59,7 @@ More info at:
 Note that a file called rcvsend needs to be copied to /etc/init.d to start it up automatically,
 and it needs to be initialised by root as:
 
-    update-rc.d rcvsend defaults
+    update-rc.d rcvsend start 20 2 3 4 5 . stop 20 0 1 6 .
 
 To remove, execute
 

@@ -125,6 +125,7 @@ if($handle === FALSE) {
 
 // Open the database
 $i = 0;
+sleep(60);	// wait a minute... for the database to be up and running
 while (!($link = opendb()) && $i<10) {
 	sleep(10);
 	if ($debug) System_Daemon::info("Trying database attempt ".$i."\n");
@@ -133,7 +134,7 @@ while (!($link = opendb()) && $i<10) {
 
 if ($i>=10) {
 	$message = date('Y-m-d H:i') . " Cannot open database " . mysql_error($link) . "\n";
-    System_Daemon::notice($message);
+	System_Daemon::notice($message);
 	exit(1);
 }
 

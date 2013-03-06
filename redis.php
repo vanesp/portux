@@ -7,10 +7,11 @@ require 'vendor/autoload.php';
 Predis\Autoloader::register();
 
 // Open Redis, catch exceptions
+// since the dns does not always work, fix the ip address for rpi1.local
 try {
     $redis = new Predis\Client(array(
         'scheme' => 'tcp',
-        'host'   => 'rpi1.local',
+        'host'   => '192.168.1.113',
         'port'   => 6379,
         // no timeouts on socket
         'read_write_timeout' => 0,
