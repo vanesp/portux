@@ -22,6 +22,8 @@
 
 // version 2.2  -- a class added to daemonize this program
 
+// version 2.3  -- extra exceptions caught on redis publishing
+
 /**
  * System_Daemon Example Code
  * 
@@ -169,14 +171,22 @@ while (($buf = fgets($handle, $LEN)) !== false) {
                 $msg->setParams('Motion', $roomid, '',1);
                 // check if redis is still connected
                 if (!$redis->isConnected()) {
-                    $redis->connect();
+                    try {
+                        $redis->connect();
+                    }
+                    catch (Exception $e) {
+                        $message = date('Y-m-d H:i') . " Cannot connect to Redis " . $e->getMessage() . "\n";
+                        System_Daemon::notice($message);
+                    }
                 }
-                try {
-                    $redis->publish('ss:event', json_encode($msg));
-                }
-                catch (Exception $e) {
-                    $message = date('Y-m-d H:i') . " Cannot publish to Redis " . $e->getMessage() . "\n";
-                    System_Daemon::notice($message);
+                if ($redis->isConnected()) {
+                    try {
+                        $redis->publish('ss:event', json_encode($msg));
+                    }
+                    catch (Exception $e) {
+                        $message = date('Y-m-d H:i') . " Cannot publish to Redis " . $e->getMessage() . "\n";
+                        System_Daemon::notice($message);
+                    }
                 }
             }
         }

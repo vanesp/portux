@@ -20,7 +20,9 @@ try {
 catch (Exception $e) {
     $message = date('Y-m-d H:i') . " Cannot connect to Redis " . $e->getMessage() . "\n";
     error_log($message, 3, $LOGFILE);
-    exit(1);
+    // Just return to prevent the daemon from crashing
+    // exit(1);
+    return;
 }
 
 // Socketstream uses specific kinds of messages
