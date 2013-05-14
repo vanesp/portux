@@ -24,6 +24,8 @@
 
 // version 2.3  -- extra exceptions caught on redis publishing
 
+// version 2.4  -- stop filling the log with Redis exception messages, except when in debug mode
+
 /**
  * System_Daemon Example Code
  * 
@@ -176,7 +178,7 @@ while (($buf = fgets($handle, $LEN)) !== false) {
                     }
                     catch (Exception $e) {
                         $message = date('Y-m-d H:i') . " Cannot connect to Redis " . $e->getMessage() . "\n";
-                        System_Daemon::notice($message);
+                        if ($debug) System_Daemon::notice($message);
                     }
                 }
                 if ($redis->isConnected()) {
@@ -185,7 +187,7 @@ while (($buf = fgets($handle, $LEN)) !== false) {
                     }
                     catch (Exception $e) {
                         $message = date('Y-m-d H:i') . " Cannot publish to Redis " . $e->getMessage() . "\n";
-                        System_Daemon::notice($message);
+                        if ($debug) System_Daemon::notice($message);
                     }
                 }
             }

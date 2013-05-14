@@ -24,8 +24,8 @@ class PachubeAPI
 	function __construct($api) 
 	{
 		$this->Api = $api;
-		$this->Pachube = "api.pachube.com/v2";
-		$this->Pachube_headers  = array("X-PachubeApiKey: $this->Api");
+		$this->Pachube = "api.xively.com/v2";
+		$this->Pachube_headers  = array("X-ApiKey: $this->Api");
 	}
 	
 	/**
@@ -46,7 +46,7 @@ class PachubeAPI
 	public function getFeedsList($format=false, $page=false, $per_page=false, $content=false, $query=false, $tag=false, $user=false, $units=false, $status=false, $order=false, $location=false)
 	{
 		if($format && ($format == "json" || $format == "csv" || $format == "xml")) $f = ".". $format;
-		$url = "http://$this->Pachube/feeds$f?";
+		$url = "https://$this->Pachube/feeds$f?";
 		if($page) $url .= "page=" . $page . "&";
 		if($per_page) $url .= "per_page=" . $per_page . "&";
 		if($content) $url .= "content=" . $content . "&";
@@ -75,7 +75,7 @@ class PachubeAPI
 	public function getFeed($format=false, $feed, $datastreams=false)
 	{
 		if($format && ($format == "json" || $format == "csv" || $format == "xml")) $feed .= ".". $format;
-		$url = "http://$this->Pachube/feeds/$feed?";
+		$url = "https://$this->Pachube/feeds/$feed?";
 		if($datastreams)
 		{
 			if(is_array($datastreams))
@@ -99,7 +99,7 @@ class PachubeAPI
 	public function updateFeed($format=false, $feed, $data)
 	{
 		if($format && ($format == "json" || $format == "csv" || $format == "xml")) $feed .= ".". $format;
-		$url = "http://$this->Pachube/feeds/$feed";
+		$url = "https://$this->Pachube/feeds/$feed";
 		return $this->_putRequest($url, $data);
 	}
 	
@@ -110,7 +110,7 @@ class PachubeAPI
 	 */
 	public function deleteFeed($feed)
 	{
-		$url = "http://$this->Pachube/feeds/$feed";
+		$url = "https://$this->Pachube/feeds/$feed";
 		return $this->_deleteRequest($url);
 	}
 	
@@ -122,7 +122,7 @@ class PachubeAPI
 	public function getDatastreamsList($feed)
 	{
 		$feed .= ".json";
-		$url = "http://$this->Pachube/feeds/$feed";
+		$url = "https://$this->Pachube/feeds/$feed";
 		$data = json_decode($this->_getRequest($url));
 		return $data->datastreams;
 	}
@@ -136,7 +136,7 @@ class PachubeAPI
 	 */
 	public function createDatastream($format=false, $feed, $data)
 	{
-		$url = "http://$this->Pachube/feeds/$feed/datastreams";
+		$url = "https://$this->Pachube/feeds/$feed/datastreams";
 		if($format && ($format == "json" || $format == "csv" || $format == "xml")) $url .= ".". $format;
 		return $this->_postRequest($url, $data);
 	}
@@ -151,7 +151,7 @@ class PachubeAPI
 	public function getDatastream($format=false, $feed, $datastream)
 	{
 		if($format && ($format == "json" || $format == "csv" || $format == "xml")) $datastream .= ".". $format;
-		$url = "http://$this->Pachube/feeds/$feed/datastreams/$datastream";
+		$url = "https://$this->Pachube/feeds/$feed/datastreams/$datastream";
 		return $this->_getRequest($url);
 	}
 	
@@ -166,7 +166,7 @@ class PachubeAPI
 	public function updateDatastream($format=false, $feed, $datastream, $data)
 	{
 		if($format && ($format == "json" || $format == "csv" || $format == "xml")) $datastream .= ".". $format;
-		$url = "http://$this->Pachube/feeds/$feed/datastreams/$datastream";
+		$url = "https://$this->Pachube/feeds/$feed/datastreams/$datastream";
 		return $this->_putRequest($url, $data);
 	}
 	
@@ -178,7 +178,7 @@ class PachubeAPI
 	 */
 	public function deleteDatastream($feed, $datastream)
 	{
-		$url = "http://$this->Pachube/feeds/$feed/datastreams/$datastream";
+		$url = "https://$this->Pachube/feeds/$feed/datastreams/$datastream";
 		return $this->_deleteRequest($url);
 	}
 	
@@ -196,7 +196,7 @@ class PachubeAPI
 	public function getUser($format=false, $user)
 	{
 		if($format && ($format == "json" || $format == "xml")) $user .= ".". $format;
-		$url = "http://$this->Pachube/users/$user";
+		$url = "https://$this->Pachube/users/$user";
 		return $this->_getRequest($url);
 	}
 	
@@ -218,7 +218,7 @@ class PachubeAPI
 	public function getFeedHistory($format, $feed, $start=false, $end=false, $duration=false, $page=false, $per_page=false, $time=false, $find_previous=false, $interval_type=false, $interval=false)
 	{
 		if($format && ($format == "json" || $format == "csv" || $format == "xml")) $feed .= ".". $format;
-		$url = "http://$this->Pachube/feeds/$feed?";
+		$url = "https://$this->Pachube/feeds/$feed?";
 		if($start) $url .= "start=" . $start . "&";
 		if($end) $url .= "content=" . $content . "&";
 		if($duration) $url .= "duration=" . $duration . "&";
@@ -251,7 +251,7 @@ class PachubeAPI
 	public function getDatastreamHistory($format, $feed, $datastream, $start=false, $end=false, $duration=false, $page=false, $per_page=false, $time=false, $find_previous=false, $interval_type=false, $interval=false)
 	{
 		if($format && ($format == "json" || $format == "csv" || $format == "xml")) $datastream .= ".". $format;
-		$url = "http://$this->Pachube/feeds/$feed/datastreams/$datastream?";
+		$url = "https://$this->Pachube/feeds/$feed/datastreams/$datastream?";
 		if($start) $url .= "start=" . $start . "&";
 		if($end) $url .= "content=" . $content . "&";
 		if($duration) $url .= "duration=" . $duration . "&";
@@ -373,7 +373,7 @@ class PachubeAPI
 	{
 		// Create a stream
 		$opts['http']['method'] = "GET";
-		$opts['http']['header'] = "X-PachubeApiKey: ".$this->Api."\r\n";
+		$opts['http']['header'] = "X-ApiKey: ".$this->Api."\r\n";
 		$context = stream_context_create($opts);
 		// Open the file using the HTTP headers set above
 		return file_get_contents($url, false, $context);
@@ -410,7 +410,7 @@ class PachubeAPI
 	{	
 		// Create a stream
 		$opts['http']['method'] = "PUT";
-		$opts['http']['header'] = "X-PachubeApiKey: ".$this->Api."\r\n";
+		$opts['http']['header'] = "X-ApiKey: ".$this->Api."\r\n";
 		$opts['http']['header'] .= "Content-Length: " . strlen($data) . "\r\n";
 		$opts['http']['header'] .= "Content-Type: application/x-www-form-urlencoded\r\n";
 		$opts['http']['content'] = $data;
