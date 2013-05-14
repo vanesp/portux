@@ -12,9 +12,9 @@
 //
 // </copyright>
 // <author>Peter van Es</author>
-// <version>2.2</version>
+// <version>2.4</version>
 // <email>vanesp@escurio.com</email>
-// <date>2013-01-20</date>
+// <date>2013-05-14</date>
 // <summary>rcvsend receives text from a jeenode and stores records in a local database
 //          text received over the serial line is transmitted to the jeenode</summary>
 
@@ -72,11 +72,8 @@ System_Daemon::log(System_Daemon::LOG_INFO, "Daemon: '".
     System_Daemon::getOption("logLocation"));
 
 
-// set some variables
-$HOST = "127.0.0.1";
-$DATABASE = "portuxdb";
-$DBUSER = "pruser";
-$DBPASS = "Wel12Lekker?";
+// get access credentials
+include('access.php');
 
 $device = "/dev/ttyS1";
 $LEN = 128;						// records are max 128 bytes
@@ -94,20 +91,20 @@ include('redis.php');
 
 // function to open the database
 function opendb () {
-    global $HOST, $DBUSER, $DBPASS, $DATABASE;
+    global $LHOST, $LDBUSER, $LDBPASS, $LDATABASE;
     $link = false;
     // Open the database
     // Open the database connection
-    $link = mysql_connect($HOST, $DBUSER, $DBPASS);
+    $link = mysql_connect($LHOST, $LDBUSER, $LDBPASS);
     if (!$link) {
  	    $message = date('Y-m-d H:i') . " Database connection failed " . mysql_error($link) . "\n";
         System_Daemon::notice($message);
     }
 
     // See if we can open the database
-    $db = mysql_select_db ($DATABASE, $link);
+    $db = mysql_select_db ($LDATABASE, $link);
     if (!$db) {
-    	$message = date('Y-m-d H:i') . " Failed to open $DATABASE " . mysql_error($link) . "\n";
+    	$message = date('Y-m-d H:i') . " Failed to open $LDATABASE " . mysql_error($link) . "\n";
         System_Daemon::notice($message);
     	$link = false;
     }
