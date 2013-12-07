@@ -97,14 +97,14 @@ function opendb () {
     // Open the database connection
     $link = mysql_connect($LHOST, $LDBUSER, $LDBPASS);
     if (!$link) {
- 	    $message = date('Y-m-d H:i') . " Database connection failed " . mysql_error($link) . "\n";
+ 	    $message = date('Y-m-d H:i') . " rcvsend.php: Database connection failed " . mysql_error($link) . "\n";
         System_Daemon::notice($message);
     }
 
     // See if we can open the database
     $db = mysql_select_db ($LDATABASE, $link);
     if (!$db) {
-    	$message = date('Y-m-d H:i') . " Failed to open $LDATABASE " . mysql_error($link) . "\n";
+    	$message = date('Y-m-d H:i') . " rcvsend.php: Failed to open $LDATABASE " . mysql_error($link) . "\n";
         System_Daemon::notice($message);
     	$link = false;
     }
@@ -117,7 +117,7 @@ exec('stty -F '.$device.' 57600');
 // open the serial port (later need to set settings)
 $handle = fopen ($device, "r");
 if($handle === FALSE) {
-	$message = date('Y-m-d H:i') . " Failed to open device " .$device. "\n";
+	$message = date('Y-m-d H:i') . " rcvsend.php: Failed to open device " .$device. "\n";
     System_Daemon::notice($message);
     // No point in continuing
     System_Daemon::stop();
@@ -129,17 +129,17 @@ $i = 0;
 sleep(60);	// wait a minute... for the database to be up and running
 while (!($link = opendb()) && $i<10) {
 	sleep(10);
-	if ($debug) System_Daemon::info("Trying database attempt ".$i."\n");
+	if ($debug) System_Daemon::info("rcvsend.php: Trying database attempt ".$i."\n");
 	$i++;
 }
 
 if ($i>=10) {
-	$message = date('Y-m-d H:i') . " Cannot open database " . mysql_error($link) . "\n";
+	$message = date('Y-m-d H:i') . " rcvsend.php: Cannot open database " . mysql_error($link) . "\n";
 	System_Daemon::notice($message);
 	exit(1);
 }
 
-if ($debug) System_Daemon::info("Ready to receive...\n");
+if ($debug) System_Daemon::info("rcvsend.php: Ready to receive...\n");
 while (($buf = fgets($handle, $LEN)) !== false) {
     if (strlen($buf) > 1) {
         // process another line
@@ -163,7 +163,7 @@ while (($buf = fgets($handle, $LEN)) !== false) {
             // Room node. PIR is on if ACK is set
             $pir = (($field[1] & 0x20) == 0x20);
             if ($pir) {
-                if ($debug) System_Daemon::info("Publishing motion event room:".$roomid."\n"); 							
+                if ($debug) System_Daemon::info("rcvsend.php: Publishing motion event room:".$roomid."\n"); 							
                 
                 // update Redis using socketstream message
                 $msg = new PubMessage;
@@ -174,7 +174,7 @@ while (($buf = fgets($handle, $LEN)) !== false) {
                         $redis->connect();
                     }
                     catch (Exception $e) {
-                        $message = date('Y-m-d H:i') . " Cannot connect to Redis " . $e->getMessage() . "\n";
+                        $message = date('Y-m-d H:i') . " rcvsend.php: Cannot connect to Redis " . $e->getMessage() . "\n";
                         if ($debug) System_Daemon::notice($message);
                     }
                 }
@@ -183,7 +183,7 @@ while (($buf = fgets($handle, $LEN)) !== false) {
                         $redis->publish('ss:event', json_encode($msg));
                     }
                     catch (Exception $e) {
-                        $message = date('Y-m-d H:i') . " Cannot publish to Redis " . $e->getMessage() . "\n";
+                        $message = date('Y-m-d H:i') . " rcvsend.php: Cannot publish to Redis " . $e->getMessage() . "\n";
                         if ($debug) System_Daemon::notice($message);
                     }
                 }
@@ -194,7 +194,7 @@ while (($buf = fgets($handle, $LEN)) !== false) {
         $insertq = "INSERT INTO rcvlog SET ts=NOW(), s='".$buf."', bP=0";
         if ($debug) System_Daemon::info($insertq."\n");
         if (($res = mysql_query ($insertq, $link))===false) {
-            $message = date('Y-m-d H:i') . " Could not insert rcvlog " . mysql_error($link) . "\n";
+            $message = date('Y-m-d H:i') . " rcvsend.php: Could not insert rcvlog " . mysql_error($link) . "\n";
             System_Daemon::notice($message);
         }
     }
@@ -204,7 +204,7 @@ mysql_free_result ($result);	// result
 mysql_close ($link);
 
 if (!feof($handle)) {
-	$message = date('Y-m-d H:i') . " fgets failed\n";
+	$message = date('Y-m-d H:i') . " rcvsend.php: fgets failed\n";
     System_Daemon::notice($message);
 }
 

@@ -72,14 +72,14 @@ function open_remote_db () {
     // Open the database connection
     $remote = mysql_connect($RHOST, $RDBUSER, $RDBPASS);
     if (!$remote) {
- 	    $message = date('Y-m-d H:i') . " Remote database connection failed " . mysql_error($remote) . "\n";
+ 	    $message = date('Y-m-d H:i') . " Consume: Remote database connection failed " . mysql_error($remote) . "\n";
 	    error_log($message, 3, $LOGFILE);
     }
 
     // See if we can open the database
     $db_r = mysql_select_db ($RDATABASE, $remote);
     if (!$db_r) {
-    	$message = date('Y-m-d H:i') . " Failed to open $RDATABASE " . mysql_error($remote) . "\n";
+    	$message = date('Y-m-d H:i') . " Consume: Failed to open $RDATABASE " . mysql_error($remote) . "\n";
     	error_log($message, 3, $LOGFILE);
     	$remote = false;
     }
@@ -93,14 +93,14 @@ function open_local_db () {
     // Open the database connection
     $local = mysql_connect($LHOST, $LDBUSER, $LDBPASS);
     if (!$local) {
- 	    $message = date('Y-m-d H:i') . " Local database connection failed " . mysql_error($local) . "\n";
+ 	    $message = date('Y-m-d H:i') . " Consume: Local database connection failed " . mysql_error($local) . "\n";
 	    error_log($message, 3, $LOGFILE);
     }
 
     // See if we can open the database
     $db_l = mysql_select_db ($LDATABASE, $local);
     if (!$db_l) {
-    	$message = date('Y-m-d H:i') . " Failed to open $LDATABASE " . mysql_error($local) . "\n";
+    	$message = date('Y-m-d H:i') . " Consume: Failed to open $LDATABASE " . mysql_error($local) . "\n";
     	error_log($message, 3, $LOGFILE);
     	$local = false;
     }
@@ -111,14 +111,14 @@ function open_local_db () {
 // Open the database
 $remote = open_remote_db();
 if (!$remote) {
-	$message = date('Y-m-d H:i') . " Cannot open remote database " . mysql_error($remote) . "\n";
+	$message = date('Y-m-d H:i') . " Consume: Cannot open remote database " . mysql_error($remote) . "\n";
 	error_log($message, 3, $LOGFILE);
 	exit (1);
 }
 
 $local = open_local_db();
 if (!$local) {
-	$message = date('Y-m-d H:i') . " Cannot open local database " . mysql_error($local) . "\n";
+	$message = date('Y-m-d H:i') . " Consume: Cannot open local database " . mysql_error($local) . "\n";
 	error_log($message, 3, $LOGFILE);
 	exit (1);
 }
@@ -127,7 +127,7 @@ if (!$local) {
 $lq = "SELECT * FROM rcvlog WHERE bP='0' ORDER BY ts";
 if ($debug) echo "Query ", $lq, "\n";
 if (($locres = mysql_query ($lq, $local))===false) {
-	$message = date('Y-m-d H:i') . " Could not read rcvlog " . mysql_error($local) . "\n";
+	$message = date('Y-m-d H:i') . " Consume: Could not read rcvlog " . mysql_error($local) . "\n";
 	error_log($message, 3, $LOGFILE);
 }
 
@@ -208,7 +208,7 @@ while ($numrows > 0) {
 			$insertq = "INSERT INTO Sensorlog SET pid='".$id."', tstamp=UNIX_TIMESTAMP('".$ts."'), value='".$value."'";
 			if ($debug) echo $insertq, "\n";
 			if (($res = mysql_query ($insertq, $remote))===false) {
-				$message = date('Y-m-d H:i') . " Could not insert event " . mysql_error($remote) . "\n";
+				$message = date('Y-m-d H:i') . " Consume: Could not insert event " . mysql_error($remote) . "\n";
 				error_log($message, 3, $LOGFILE);
                                 if (mysql_errno($remote) === 1062) {
                                         // it is a Duplicate Key message... delete the record anyway by setting $upd_done to true
@@ -221,7 +221,7 @@ while ($numrows > 0) {
 				$updateq = "UPDATE Sensor SET tstamp=UNIX_TIMESTAMP('".$ts."'), lobatt=0 WHERE id='".$id."'";
 				if ($debug) echo $updateq, "\n";
 				if (($res = mysql_query ($updateq, $remote))===false) {
-				        $message = date('Y-m-d H:i') . " Could not update Sensor " . mysql_error($remote) . "\n";
+				        $message = date('Y-m-d H:i') . " Consume: Could not update Sensor " . mysql_error($remote) . "\n";
 				        error_log($message, 3, $LOGFILE);
                                 }
                                 if ($publish) {
@@ -234,7 +234,7 @@ while ($numrows > 0) {
                                                         $redis->publish('ss:event', json_encode($msg));
                                                 }
                                                 catch (Exception $e) {
-                                                        $message = date('Y-m-d H:i') . " Cannot publish to Redis " . $e->getMessage() . "\n";
+                                                        $message = date('Y-m-d H:i') . " Consume: Cannot publish to Redis " . $e->getMessage() . "\n";
                                                         if ($debug) error_log($message, 3, $LOGFILE);
                                                 }
                                         }
@@ -256,12 +256,12 @@ while ($numrows > 0) {
 		// there should be only one...
 		if ($debug) echo "Query ", $query, "\n";
 		if (($result = mysql_query ($query, $remote))===false) {
-			$message = date('Y-m-d H:i') . " Could not read Sensor " . mysql_error($remote) . "\n";
+			$message = date('Y-m-d H:i') . " Consume: Could not read Sensor " . mysql_error($remote) . "\n";
 			error_log($message, 3, $LOGFILE);
 		}
 		$nr = mysql_num_rows($result);
 		if ($nr < 1) {
-			$message = date('Y-m-d H:i') . " Electricity sensor not found " . $id . "\n";
+			$message = date('Y-m-d H:i') . " Consume: Electricity sensor not found " . $id . "\n";
 			error_log($message, 3, $LOGFILE);
 		} else {
 			// decode message depending on sensortype
@@ -279,7 +279,7 @@ while ($numrows > 0) {
 			$insertq = "INSERT INTO Sensorlog SET pid='".$id."', tstamp=UNIX_TIMESTAMP('".$ts."'), value='".$power."', count='".$pulse."'";
 			if ($debug) echo $insertq, "\n";
 			if (($res = mysql_query ($insertq, $remote))===false) {
-				$message = date('Y-m-d H:i') . " Could not insert event " . mysql_error($remote) . "\n";
+				$message = date('Y-m-d H:i') . " Consume: Could not insert event " . mysql_error($remote) . "\n";
 				error_log($message, 3, $LOGFILE);
 				if (mysql_errno($remote) === 1062) {
 				        // it is a Duplicate Key message... delete the record anyway by setting $upd_done to true
@@ -292,7 +292,7 @@ while ($numrows > 0) {
 			$updateq = "UPDATE Sensor SET tstamp=UNIX_TIMESTAMP('".$ts."'), lobatt=0, cum_elec_pulse=cum_elec_pulse+".$pulse." WHERE id='".$id."'";
 			if ($debug) echo $updateq, "\n";
 			if (($res = mysql_query ($updateq, $remote))===false) {
-				$message = date('Y-m-d H:i') . " Could not update Sensor " . mysql_error($remote) . "\n";
+				$message = date('Y-m-d H:i') . " Consume: Could not update Sensor " . mysql_error($remote) . "\n";
 				error_log($message, 3, $LOGFILE);
 			}
 			if ($publish) {
@@ -305,7 +305,7 @@ while ($numrows > 0) {
 			                    $redis->publish('ss:event', json_encode($msg));
                                     }
                                     catch (Exception $e) {
-                                            $message = date('Y-m-d H:i') . " Cannot publish to Redis " . $e->getMessage() . "\n";
+                                            $message = date('Y-m-d H:i') . " Consume: Cannot publish to Redis " . $e->getMessage() . "\n";
                                             if ($debug) error_log($message, 3, $LOGFILE);
                                     }
                             }
@@ -334,7 +334,7 @@ while ($numrows > 0) {
 
 		$nr = mysql_num_rows($result);
 		if ($nr < 1) {
-			$message = date('Y-m-d H:i') . " idroom not found " . $roomid . "\n";
+			$message = date('Y-m-d H:i') . " Consume: idroom not found " . $roomid . "\n";
 			error_log($message, 3, $LOGFILE);
 		} else {
 			// decode message depending on sensortype
@@ -377,7 +377,7 @@ while ($numrows > 0) {
 				}
 				if ($debug) echo $insertq, "\n";
 				if (($res = mysql_query ($insertq, $remote))===false) {
-					$message = date('Y-m-d H:i') . " Could not insert event " . mysql_error($remote) . "\n";
+					$message = date('Y-m-d H:i') . " Consume: Could not insert event " . mysql_error($remote) . "\n";
 					error_log($message, 3, $LOGFILE);
 					if (mysql_errno($remote) === 1062) {
 					    // it is a Duplicate Key message... delete the record anyway by setting $upd_done to true
@@ -398,7 +398,7 @@ while ($numrows > 0) {
                                                         $redis->publish('ss:event', json_encode($msg));
                                                 }
                                                 catch (Exception $e) {
-                                                        $message = date('Y-m-d H:i') . " Cannot publish to Redis " . $e->getMessage() . "\n";
+                                                        $message = date('Y-m-d H:i') . " Consume: Cannot publish to Redis " . $e->getMessage() . "\n";
                                                         error_log($message, 3, $LOGFILE);
                                                 }
                                                 $msg->setParams('Humidity', $location, '%', $humid);
@@ -406,7 +406,7 @@ while ($numrows > 0) {
                                                         $redis->publish('ss:event', json_encode($msg));
                                                 }
                                                 catch (Exception $e) {
-                                                        $message = date('Y-m-d H:i') . " Cannot publish to Redis " . $e->getMessage() . "\n";
+                                                        $message = date('Y-m-d H:i') . " Consume: Cannot publish to Redis " . $e->getMessage() . "\n";
                                                         error_log($message, 3, $LOGFILE);
                                                 }
                                                 $msg->setParams('Temperature', $location, '°C', $temp);
@@ -414,7 +414,7 @@ while ($numrows > 0) {
                                                         $redis->publish('ss:event', json_encode($msg));
                                                 }
                                                 catch (Exception $e) {
-                                                        $message = date('Y-m-d H:i') . " Cannot publish to Redis " . $e->getMessage() . "\n";
+                                                        $message = date('Y-m-d H:i') . " Consume: Cannot publish to Redis " . $e->getMessage() . "\n";
                                                         error_log($message, 3, $LOGFILE);
                                                 }
  					}
@@ -436,7 +436,7 @@ while ($numrows > 0) {
 				$updateq = "UPDATE Sensor SET tstamp=UNIX_TIMESTAMP('".$ts."'), lobatt='".$lobat."' WHERE id='".$id."'";
 				if ($debug) echo $updateq, "\n";
 				if (($res = mysql_query ($updateq, $remote))===false) {
-					$message = date('Y-m-d H:i') . " Could not update Sensor " . mysql_error($remote) . "\n";
+					$message = date('Y-m-d H:i') . " Consume: Could not update Sensor " . mysql_error($remote) . "\n";
 					error_log($message, 3, $LOGFILE);
 				}
 			} // if RNR
@@ -447,7 +447,7 @@ while ($numrows > 0) {
 		// updated on remote database, now fix local database
 		if ($debug) echo $lupdq, "\n";
 		if (($res = mysql_query ($lupdq, $local))===false) {
-			$message = date('Y-m-d H:i') . " Could not update local rcvlog " . mysql_error($local) . "\n";
+			$message = date('Y-m-d H:i') . " Consume: Could not update local rcvlog " . mysql_error($local) . "\n";
 			error_log($message, 3, $LOGFILE);
 		}
 	}
@@ -458,7 +458,7 @@ while ($numrows > 0) {
 $lq = "DELETE FROM rcvlog WHERE bP='1'";
 if ($debug) echo "Query ", $lq, "\n";
 if (($result = mysql_query ($lq, $local))===false) {
-	$message = date('Y-m-d H:i') . " Could not delete local rcvlog " . mysql_error($local) . "\n";
+	$message = date('Y-m-d H:i') . " Consume: Could not delete local rcvlog " . mysql_error($local) . "\n";
 	error_log($message, 3, $LOGFILE);
 }
 

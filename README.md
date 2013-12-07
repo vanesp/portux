@@ -38,7 +38,7 @@ The subscribe messages are of the form:
         "p" : [ 'type', 'location', 'quantity','value']
     }
 
-Where RNR sensors are split into <sensortype> Temperature / Humidity / Motion
+Where RNR sensors are split into <sensortype> Temperature / Humidity / Light / Motion
 and <value> needs no more calculation.
 
 The order is changed from the previous version because this allows easier subscription to e.g. all
