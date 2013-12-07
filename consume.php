@@ -12,9 +12,9 @@
 //
 // </copyright>
 // <author>Peter van Es</author>
-// <version>1.2</version>
+// <version>1.3</version>
 // <email>vanesp@escurio.com</email>
-// <date>2013-03-13</date>
+// <date>2013-05-14</date>
 // <summary>consume reads records from the local database and stores them remotely</summary>
 
 // Everytime consume runs, it reads all the records from the local database,
@@ -29,28 +29,16 @@
 // version 1.2 - much more resilience if redis is not there, and does not publish data
 //               if its playing catch-up
 
-// remote database
-$RHOST = "192.168.1.1";
-$RDATABASE = "mydb";
-$RDBUSER = "esuser";
-$RDBPASS = "Vecht18Watch!";
-
-// local database
-$LHOST = "127.0.0.1";
-$LDATABASE = "portuxdb";
-$LDBUSER = "pruser";
-$LDBPASS = "Wel12Lekker?";
-
-$LOGFILE = "sensor.log";		// log history of actions
-
-$LEN = 128;						// records are max 128 bytes
+// version 1.3 - stop filling the sensor log if not fatal
 
 // data for Cosm updates
-
 include('PachubeAPI.php');
-$pachube = new PachubeAPI("U98DuR5xdbHiH4_30wfQSx37aT2SAKxQdTZNcWt4UytXUT0g");
-$feed = 87645;
-$user = "vanesp";
+
+// access information
+include('access.php');
+$LOGFILE = "sensor.log";		// log history of actions
+$LEN = 128;						// records are max 128 bytes
+
 
 // include Redis pub sub functionality
 include('redis.php');
@@ -194,7 +182,7 @@ while ($numrows > 0) {
 		$nr = mysql_num_rows($result);
 		if ($nr < 1) {
 			$message = date('Y-m-d H:i') . " sensor id not found " . $id . "\n";
-			error_log($message, 3, $LOGFILE);
+			if ($debug) error_log($message, 3, $LOGFILE);
 		} else {
 			// decode message depending on sensortype
 			$Record = mysql_fetch_array($result, MYSQL_ASSOC);
@@ -215,48 +203,48 @@ while ($numrows > 0) {
 					$value = $field[2] * $scale;
 				}
 				// somehow quantity does not come out of database correctly for temperature, so overrride
-                $quantity = '°C';
+				$quantity = '°C';
 			}
 			$insertq = "INSERT INTO Sensorlog SET pid='".$id."', tstamp=UNIX_TIMESTAMP('".$ts."'), value='".$value."'";
 			if ($debug) echo $insertq, "\n";
 			if (($res = mysql_query ($insertq, $remote))===false) {
 				$message = date('Y-m-d H:i') . " Could not insert event " . mysql_error($remote) . "\n";
 				error_log($message, 3, $LOGFILE);
-                if (mysql_errno($remote) === 1062) {
-                    // it is a Duplicate Key message... delete the record anyway by setting $upd_done to true
-                    $upd_done = true;
-                } 
-			} else {
-				$upd_done = true;	
-			}
-			// now update the sensor timestamp and battery status
-			$updateq = "UPDATE Sensor SET tstamp=UNIX_TIMESTAMP('".$ts."'), lobatt=0 WHERE id='".$id."'";
-			if ($debug) echo $updateq, "\n";
-			if (($res = mysql_query ($updateq, $remote))===false) {
-				$message = date('Y-m-d H:i') . " Could not update Sensor " . mysql_error($remote) . "\n";
-				error_log($message, 3, $LOGFILE);
-			}
-			if ($publish) {
-			    if ($pubredis) {
-                    // update Redis using socketstream message
-                    $msg = new PubMessage;
-                    $msg->setParams($sensortype, $location, $quantity, $value);
-                    if ($debug) echo "Redis publishing ".$sensortype." ".$location.": ".$value."\n";
-                    try {
-                        $redis->publish('ss:event', json_encode($msg));
-                    }
-                    catch (Exception $e) {
-                        $message = date('Y-m-d H:i') . " Cannot publish to Redis " . $e->getMessage() . "\n";
-                        error_log($message, 3, $LOGFILE);
-                    }
-                }
-                // and update Pachube / Cosm
-                $data = '"' . $value . '"';
-                if ($datastream != '') {
-                    $result = $pachube->updateDataStream("csv", $feed, $datastream, $data);
-                }
-            }
-		}
+                                if (mysql_errno($remote) === 1062) {
+                                        // it is a Duplicate Key message... delete the record anyway by setting $upd_done to true
+                                        $upd_done = true;
+                                } 
+                                } else {
+				        $upd_done = true;	
+				}
+				// now update the sensor timestamp and battery status
+				$updateq = "UPDATE Sensor SET tstamp=UNIX_TIMESTAMP('".$ts."'), lobatt=0 WHERE id='".$id."'";
+				if ($debug) echo $updateq, "\n";
+				if (($res = mysql_query ($updateq, $remote))===false) {
+				        $message = date('Y-m-d H:i') . " Could not update Sensor " . mysql_error($remote) . "\n";
+				        error_log($message, 3, $LOGFILE);
+                                }
+                                if ($publish) {
+                                        if ($pubredis) {
+                                                // update Redis using socketstream message
+                                                $msg = new PubMessage;
+                                                $msg->setParams($sensortype, $location, $quantity, $value);
+                                                if ($debug) echo "Redis publishing ".$sensortype." ".$location.": ".$value."\n";
+                                                try {
+                                                        $redis->publish('ss:event', json_encode($msg));
+                                                }
+                                                catch (Exception $e) {
+                                                        $message = date('Y-m-d H:i') . " Cannot publish to Redis " . $e->getMessage() . "\n";
+                                                        if ($debug) error_log($message, 3, $LOGFILE);
+                                                }
+                                        }
+                                        // and update Pachube / Cosm
+                                        $data = '"' . $value . '"';
+                                        if ($datastream != '') {
+                                                $result = $pachube->updateDataStream("csv", $feed, $datastream, $data);
+                                        }
+                                }
+                        }
 	} // if TMP
 
 	if (strpos($buf, "ELEC") === 0) {
@@ -293,10 +281,10 @@ while ($numrows > 0) {
 			if (($res = mysql_query ($insertq, $remote))===false) {
 				$message = date('Y-m-d H:i') . " Could not insert event " . mysql_error($remote) . "\n";
 				error_log($message, 3, $LOGFILE);
-                if (mysql_errno($remote) === 1062) {
-                    // it is a Duplicate Key message... delete the record anyway by setting $upd_done to true
-                    $upd_done = true;
-                } 
+				if (mysql_errno($remote) === 1062) {
+				        // it is a Duplicate Key message... delete the record anyway by setting $upd_done to true
+				        $upd_done = true;
+                                } 
 			} else {
 				$upd_done = true;	
 			}
@@ -309,24 +297,24 @@ while ($numrows > 0) {
 			}
 			if ($publish) {
 			    if ($pubredis) {
-                    // update Redis using socketstream message
-                    $msg = new PubMessage;
-                    $msg->setParams($sensortype, $location, 'W', $power);
-                    if ($debug) echo "Redis publishing ".$sensortype." ".$location.": ".$value."\n";
-                    try {
-                        $redis->publish('ss:event', json_encode($msg));
-                    }
-                    catch (Exception $e) {
-                        $message = date('Y-m-d H:i') . " Cannot publish to Redis " . $e->getMessage() . "\n";
-                        error_log($message, 3, $LOGFILE);
-                    }
-                }
-                // and update Pachube / Cosm
-				$data = '"' . $power . '"';
-                if ($datastream != '') {
-                    $result = $pachube->updateDataStream("csv", $feed, $datastream, $data);
-                }
-            }
+			            // update Redis using socketstream message
+			            $msg = new PubMessage;
+			            $msg->setParams($sensortype, $location, 'W', $power);
+			            if ($debug) echo "Redis publishing ".$sensortype." ".$location.": ".$value."\n";
+			            try {
+			                    $redis->publish('ss:event', json_encode($msg));
+                                    }
+                                    catch (Exception $e) {
+                                            $message = date('Y-m-d H:i') . " Cannot publish to Redis " . $e->getMessage() . "\n";
+                                            if ($debug) error_log($message, 3, $LOGFILE);
+                                    }
+                            }
+                            // and update Pachube / Cosm
+                            $data = '"' . $power . '"';
+                            if ($datastream != '') {
+                                    $result = $pachube->updateDataStream("csv", $feed, $datastream, $data);
+                            }
+                         }
 		}
 	} // if ELEC
 
@@ -399,36 +387,36 @@ while ($numrows > 0) {
 					$upd_done = true;	
 
 					// update Redis
-    				// Motion records should be sent immediately, so
+    			        	// Motion records should be sent immediately, so
 					// they are sent by rcvsend.php
 					if (!$pir && $publish && $pubredis) {
-                        // update Redis using socketstream message
-                        $msg = new PubMessage;
-                        if ($debug) echo "Redis publishing RNR ".$location."\n";
-                        $msg->setParams('Light', $location, '%', $light);
-                        try {
-                            $redis->publish('ss:event', json_encode($msg));
-                        }
-                        catch (Exception $e) {
-                            $message = date('Y-m-d H:i') . " Cannot publish to Redis " . $e->getMessage() . "\n";
-                            error_log($message, 3, $LOGFILE);
-                        }
-                        $msg->setParams('Humidity', $location, '%', $humid);
-                        try {
-                            $redis->publish('ss:event', json_encode($msg));
-                        }
-                        catch (Exception $e) {
-                            $message = date('Y-m-d H:i') . " Cannot publish to Redis " . $e->getMessage() . "\n";
-                            error_log($message, 3, $LOGFILE);
-                        }
-                        $msg->setParams('Temperature', $location, '°C', $temp);
-                        try {
-                            $redis->publish('ss:event', json_encode($msg));
-                        }
-                        catch (Exception $e) {
-                            $message = date('Y-m-d H:i') . " Cannot publish to Redis " . $e->getMessage() . "\n";
-                            error_log($message, 3, $LOGFILE);
-                        }
+					        // update Redis using socketstream message
+                                                $msg = new PubMessage;
+                                                if ($debug) echo "Redis publishing RNR ".$location."\n";
+                                                $msg->setParams('Light', $location, '%', $light);
+                                                try {
+                                                        $redis->publish('ss:event', json_encode($msg));
+                                                }
+                                                catch (Exception $e) {
+                                                        $message = date('Y-m-d H:i') . " Cannot publish to Redis " . $e->getMessage() . "\n";
+                                                        error_log($message, 3, $LOGFILE);
+                                                }
+                                                $msg->setParams('Humidity', $location, '%', $humid);
+                                                try {
+                                                        $redis->publish('ss:event', json_encode($msg));
+                                                }
+                                                catch (Exception $e) {
+                                                        $message = date('Y-m-d H:i') . " Cannot publish to Redis " . $e->getMessage() . "\n";
+                                                        error_log($message, 3, $LOGFILE);
+                                                }
+                                                $msg->setParams('Temperature', $location, '°C', $temp);
+                                                try {
+                                                        $redis->publish('ss:event', json_encode($msg));
+                                                }
+                                                catch (Exception $e) {
+                                                        $message = date('Y-m-d H:i') . " Cannot publish to Redis " . $e->getMessage() . "\n";
+                                                        error_log($message, 3, $LOGFILE);
+                                                }
  					}
 
 					// and update Pachube / Cosm

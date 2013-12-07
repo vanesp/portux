@@ -4,6 +4,9 @@
 mountnfs
 *.lock
 
+# file with passwords
+access.php
+
 # Object files
 *.o
 
