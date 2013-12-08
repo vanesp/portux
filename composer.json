@@ -1,5 +1,6 @@
 {
 	"require": {
-		"predis/predis": "0.8"
+		"predis/predis": "0.8",
+		"predis/predis-async": "dev-master"
 	}
 }

@@ -22,8 +22,8 @@ A composer.json file needs to be created, and then the command
 
     composer install
 
-needs to be run in the directory of the project. That leads to the rerquired packages being installed in the
-subdirectory vendor/. They can then be included in the PHP project
+needs to be run in the directory of the project. That leads to the rerquired packages
+being installed in the subdirectory vendor/. They can then be included in the PHP project
 
 ### Redis usage
 
@@ -39,10 +39,15 @@ The subscribe messages are of the form:
     }
 
 Where RNR sensors are split into <sensortype> Temperature / Humidity / Light / Motion
-and <value> needs no more calculation.
+and <value> needs no more calculation. The order is changed from the previous version
+because this allows easier subscription to e.g. all motion events, or all temperature events.
 
-The order is changed from the previous version because this allows easier subscription to e.g. all
-motion events, or all temperature events.
+Additionally two kinds of message are sent:
+
+* Motion messages (type = Motion, location is 2 (Studeerkamer) or 3 (Woonkamer) by rcvsend)
+* Switch messages (type = Switch, location is 1..4, value is true (On) or false (Off))
+
+
 
 ### Transforming to a Daemon
 

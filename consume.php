@@ -12,9 +12,9 @@
 //
 // </copyright>
 // <author>Peter van Es</author>
-// <version>1.3</version>
+// <version>1.4</version>
 // <email>vanesp@escurio.com</email>
-// <date>2013-05-14</date>
+// <date>2013-12-08</date>
 // <summary>consume reads records from the local database and stores them remotely</summary>
 
 // Everytime consume runs, it reads all the records from the local database,
@@ -30,6 +30,8 @@
 //               if its playing catch-up
 
 // version 1.3 - stop filling the sensor log if not fatal
+
+// version 1.4 - use Redis Set mechanism instead of pub/sub for the measurement values
 
 // data for Cosm updates
 include('PachubeAPI.php');
@@ -231,7 +233,9 @@ while ($numrows > 0) {
                                                 $msg->setParams($sensortype, $location, $quantity, $value);
                                                 if ($debug) echo "Redis publishing ".$sensortype." ".$location.": ".$value."\n";
                                                 try {
-                                                        $redis->publish('ss:event', json_encode($msg));
+                                                        // update Redis using Set
+                                                        $redis->set ($location.":".$sensortype, $value); 
+                                                        // $redis->publish('ss:event', json_encode($msg));
                                                 }
                                                 catch (Exception $e) {
                                                         $message = date('Y-m-d H:i') . " Consume: Cannot publish to Redis " . $e->getMessage() . "\n";
@@ -302,7 +306,9 @@ while ($numrows > 0) {
 			            $msg->setParams($sensortype, $location, 'W', $power);
 			            if ($debug) echo "Redis publishing ".$sensortype." ".$location.": ".$value."\n";
 			            try {
-			                    $redis->publish('ss:event', json_encode($msg));
+			                        // update Redis using Set
+                                    $redis->set ($location.":".$sensortype, $power); 
+                                    // $redis->publish('ss:event', json_encode($msg));
                                     }
                                     catch (Exception $e) {
                                             $message = date('Y-m-d H:i') . " Consume: Cannot publish to Redis " . $e->getMessage() . "\n";
@@ -395,7 +401,9 @@ while ($numrows > 0) {
                                                 if ($debug) echo "Redis publishing RNR ".$location."\n";
                                                 $msg->setParams('Light', $location, '%', $light);
                                                 try {
-                                                        $redis->publish('ss:event', json_encode($msg));
+                       			                        // update Redis using Set
+                                                        $redis->set ($location.":Light", $light); 
+                                                        // $redis->publish('ss:event', json_encode($msg));
                                                 }
                                                 catch (Exception $e) {
                                                         $message = date('Y-m-d H:i') . " Consume: Cannot publish to Redis " . $e->getMessage() . "\n";
@@ -403,7 +411,9 @@ while ($numrows > 0) {
                                                 }
                                                 $msg->setParams('Humidity', $location, '%', $humid);
                                                 try {
-                                                        $redis->publish('ss:event', json_encode($msg));
+                       			                        // update Redis using Set
+                                                        $redis->set ($location.":Humidity", $humid); 
+                                                        // $redis->publish('ss:event', json_encode($msg));
                                                 }
                                                 catch (Exception $e) {
                                                         $message = date('Y-m-d H:i') . " Consume: Cannot publish to Redis " . $e->getMessage() . "\n";
@@ -411,7 +421,9 @@ while ($numrows > 0) {
                                                 }
                                                 $msg->setParams('Temperature', $location, '°C', $temp);
                                                 try {
-                                                        $redis->publish('ss:event', json_encode($msg));
+                       			                        // update Redis using Set
+                                                        $redis->set ($location.":Temperature", $temp); 
+                                                        // $redis->publish('ss:event', json_encode($msg));
                                                 }
                                                 catch (Exception $e) {
                                                         $message = date('Y-m-d H:i') . " Consume: Cannot publish to Redis " . $e->getMessage() . "\n";
