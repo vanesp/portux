@@ -6,6 +6,7 @@ mountnfs
 
 # file with passwords
 access.php
+pachubeaccess.php
 
 # Object files
 *.o

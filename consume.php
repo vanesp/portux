@@ -35,6 +35,7 @@
 
 // data for Cosm updates
 include('PachubeAPI.php');
+include('pachubeaccess.php');
 
 // access information
 include('access.php');
