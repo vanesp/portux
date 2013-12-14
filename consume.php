@@ -235,7 +235,8 @@ while ($numrows > 0) {
                                                 if ($debug) echo "Redis publishing ".$sensortype." ".$location.": ".$value."\n";
                                                 try {
                                                         // update Redis using Set
-                                                        $redis->set ($location.":".$sensortype, $value); 
+                                        			    $key = $location.":".$sensortype;
+                                                        $redis->set ($key, $value); 
                                                         // $redis->publish('ss:event', json_encode($msg));
                                                 }
                                                 catch (Exception $e) {
@@ -305,10 +306,11 @@ while ($numrows > 0) {
 			            // update Redis using socketstream message
 			            $msg = new PubMessage;
 			            $msg->setParams($sensortype, $location, 'W', $power);
-			            if ($debug) echo "Redis publishing ".$sensortype." ".$location.": ".$value."\n";
+			            if ($debug) echo "Redis publishing ".$sensortype." ".$location.": ".$power."\n";
 			            try {
 			                        // update Redis using Set
-                                    $redis->set ($location.":".$sensortype, $power); 
+                    			    $key = $location.":".$sensortype;
+                                    $redis->set ($key, $power); 
                                     // $redis->publish('ss:event', json_encode($msg));
                                     }
                                     catch (Exception $e) {
@@ -403,7 +405,9 @@ while ($numrows > 0) {
                                                 $msg->setParams('Light', $location, '%', $light);
                                                 try {
                        			                        // update Redis using Set
-                                                        $redis->set ($location.":Light", $light); 
+                       			                        $key = $location.":Light";
+                                                        $redis->set ($key, $light); 
+                                                        // $redis->set ($location.":Light", $light); 
                                                         // $redis->publish('ss:event', json_encode($msg));
                                                 }
                                                 catch (Exception $e) {
@@ -413,7 +417,9 @@ while ($numrows > 0) {
                                                 $msg->setParams('Humidity', $location, '%', $humid);
                                                 try {
                        			                        // update Redis using Set
-                                                        $redis->set ($location.":Humidity", $humid); 
+                       			                        $key = $location.":Humidity";
+                                                        $redis->set ($key, $humid); 
+                                                        // $redis->set ($location.":Humidity", $humid); 
                                                         // $redis->publish('ss:event', json_encode($msg));
                                                 }
                                                 catch (Exception $e) {
@@ -423,7 +429,9 @@ while ($numrows > 0) {
                                                 $msg->setParams('Temperature', $location, '°C', $temp);
                                                 try {
                        			                        // update Redis using Set
-                                                        $redis->set ($location.":Temperature", $temp); 
+                       			                        $key = $location.":Temperature";
+                                                        $redis->set ($key, $temp); 
+                                                        // $redis->set ($location.":Temperature", $temp); 
                                                         // $redis->publish('ss:event', json_encode($msg));
                                                 }
                                                 catch (Exception $e) {

@@ -10,9 +10,9 @@ Predis\Autoloader::register();
 // since the dns does not always work, fix the ip address for rpi1.local
 try {
     $redis = new Predis\Client(array(
-        'scheme' => 'tcp',
-        'host'   => '192.168.1.113',
+        'host'   => '127.0.0.1',
         'port'   => 6379,
+        'database' => 1,
         // no timeouts on socket
         'read_write_timeout' => 0,
     ));
