@@ -47,7 +47,8 @@ because this allows easier subscription to e.g. all motion events, or all temper
 Additional kinds of messages are:
 
 * Motion messages (type = Motion, location is 2 (Studeerkamer) or 3 (Woonkamer) by rcvsend)
-* Switch messages (type = Switch, location is 1..4, value is true (On) or false (Off))
+* Switch messages (type = Switch, location is 1..4, quantity is the command string, 
+  value is true (On) or false (Off))
 * Tick messages (type is Tick, location is blank, as is quantity, value has a timestamp)
 
 
