@@ -10,6 +10,7 @@ Predis\Autoloader::register();
 // since the dns does not always work, fix the ip address for rpi1.local
 try {
     $redis = new Predis\Client(array(
+        'scheme' => 'tcp',
         'host'   => '127.0.0.1',
         'port'   => 6379,
         'database' => 1,
@@ -45,6 +46,22 @@ class PubMessage {
         
     public function setType ($t) {
         $this->t = $t;
+    }
+
+    public function getType () {
+       return $this->p['type'];
+    }
+
+    public function getLocation () {
+       return $this->p['location'];
+    }
+
+    public function getQuantity () {
+       return $this->p['quantity'];
+    }
+
+    public function getValue () {
+       return $this->p['value'];
     }
 
     public function setEvent ($e) {

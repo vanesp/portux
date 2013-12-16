@@ -44,68 +44,495 @@
 include('access.php');
 $LOGFILE = "controller.log";		// log history of actions
 $LEN = 128;						// records are max 128 bytes
+$latitude = 52.2395602;         // details for Hilversum
+$longitude = 5.1525346;
+$sunrise = '08:00';             // will be overwritten every loop
+$sunset = '17:30';
+$in_the_dark = false;
+
+// defining our finite machine states
+// define ('', 0);
+define ('ON', 1);
+define ('OFF', 2);
+define ('SCHED', 3);
+define ('FORCEON', 4);
+define ('FORCEOFF', 5);
+
+
+date_default_timezone_set('Europe/Amsterdam');
+
+// don't timeout!
+set_time_limit(0);
 
 // include Redis pub sub functionality
-// include('redis.php');
+include('redis.php');
 
-// Use the Predis\Async library
+// Global data structure 
+$debug = true;
+$vdebug = false;    // verbose
+$remote;
 
-require 'vendor/autoload.php';
 
-// prepend a base path if Predis is not present in the "include_path".
-// require 'Predis/Autoloader.php';
-// Open Redis, catch exceptions
-// since the dns does not always work, fix the ip address for rpi1.local
+// function to open the remote database
+function open_remote_db () {
+    global $RHOST, $RDBUSER, $RDBPASS, $RDATABASE, $LOGFILE;
+    $remote = false;
+    // Open the database
+    // Open the database connection
+    $remote = mysql_connect($RHOST, $RDBUSER, $RDBPASS);
+    if (!$remote) {
+ 	    $message = date('Y-m-d H:i') . " Controller: Remote database connection failed " . mysql_error($remote) . "\n";
+	    error_log($message, 3, $LOGFILE);
+    }
+
+    // See if we can open the database
+    $db_r = mysql_select_db ($RDATABASE, $remote);
+    if (!$db_r) {
+    	$message = date('Y-m-d H:i') . " Controller: Failed to open $RDATABASE " . mysql_error($remote) . "\n";
+    	error_log($message, 3, $LOGFILE);
+    	$remote = false;
+    }
+    return $remote;
+}
+
+// function to send a command
+function sendCommand ($key, $state) {
+    global $debug, $vdebug, $publish, $switches, $LOGFILE;
+    
+    $sensortype = 'Switch';
+    $location = $switches[$key]['description']; // or 2 or 3, or name of switch
+    
+    $value = false;  // or false for off
+    if ($state == 'On') $value = true;
+    $quantity = $switches[$key]['command'];
+
+    if ($vdebug) echo "sendCommand: key $key, $quantity\n";
+    
+    // create the channel name for Pub/Sub
+    $channel = 'portux.'.$sensortype.'.'.$location;
+
+    // update Redis using socketstream message
+    $msg = new PubMessage;
+    $msg->setParams($sensortype, $location, $quantity, $value);
+    if ($debug) echo "sendCommand publishing ".$sensortype." ".$location.": ".$quantity.$state."\n";
+    try {
+            $publish->publish('ss:event', json_encode($msg));
+    }
+    catch (Exception $e) {
+            $message = date('Y-m-d H:i') . " Controller: Cannot publish to Redis " . $e->getMessage() . "\n";
+            error_log($message, 3, $LOGFILE);
+            if ($vdebug) echo $message;
+    }
+}
+
+// function to handle an incoming message and act accordingly
+function handleIncoming($str) {
+    global $switches, $debug, $vdebug, $sunrise, $sunset;
+    
+    // remove non-printable characters
+    $str = preg_replace( '/[^[:print:]]/', '',$str);
+    // deal with the incoming or outgoing message, replace comma's with \n
+    $msg = str_replace (', ',"\n", $str);
+    // and parse it to an associative array with fields Direction, Source, and Event
+    $cmd = parse_ini_string ($msg);
+    if ($debug) { echo "handleIncoming \n"; print_r ($cmd); }
+    
+    // we only take action if it is an Input event
+    if ($cmd['Direction'] == 'Input') {
+        // parse the Event, first check for on or off
+        if ((strripos ($cmd['Event'],',On')) !== false) $newstate = FORCEON;
+        if ((strripos ($cmd['Event'],',Off')) !== false) $newstate = FORCEOFF;
+        if (($i = strripos ($cmd['Event'],'NewKAKU')) !== false) {
+            // it's a new one... find the string
+            $end = strripos ($cmd['Event'],',');
+            $begin = $i + 7; // NewKaku is 7 long
+            $len = $end - $begin;   // length of the identifier
+            $ident = substr ($cmd['Event'], $begin, $len);
+        }
+        if (($i = strripos ($cmd['Event'],'KAKU')) !== false) {
+            // it's a new one... find the string
+            $end = strripos ($cmd['Event'],',');
+            $begin = $i + 4; // KAKU is 7 long
+            $len = $end - $begin;   // length of the identifier
+            $ident = substr ($cmd['Event'], $begin, $len);
+        }
+        if (isset($ident)) {
+            if ($vdebug) echo "Identifier $ident\n";
+            // loop through switches to find the one we have
+            reset ($switches);
+            foreach ($switches as &$switch) {
+                if ($switch['kaku'] == $ident) {
+                    // get the current state... cycle from FORCEON -> ON etc
+                    if ($switch['state'] == FORCEON || $switch['state'] == FORCEOFF) {
+                        $forced = true;
+                    } else {
+                        $forced = false;
+                    }
+
+                    if ($newstate == FORCEON) {
+                        if ($forced) {
+                            $switch['state'] = ON;
+                        } else {
+                            $switch['state'] = FORCEON;
+                        }
+                        $switch['time_off'] = '00:30';  // switch off at 30 past midnight
+                        $switch['tstamp'] = strtotime("tomorrow ".$switch['time_off']);     // set the time
+                    }
+                    if ($newstate == FORCEOFF) {
+                        if ($forced) {
+                            $switch['state'] = OFF;
+                        } else {
+                            $switch['state'] = FORCEOFF;
+                        }
+                        $switch['time_on'] = $sunset;  // switch on at sunset tomorrow
+                        $switch['tstamp'] = strtotime("tomorrow ".$switch['time_on']);     // set the time
+                    }
+                    if ($vdebug) print_r ($switch);
+                    
+                } // not the right switch
+            }
+        }
+    } // we do nothing with an Output message
+}
+
+// function to handle a motion event on a location
+function handleMotion($location) {
+    global $switches, $debug, $vdebug, $sunrise, $sunset, $in_the_dark;
+
+    if ($vdebug) echo "handleMotion processing location $location\n";
+    reset ($switches);
+    foreach ($switches as $key => $switch) {
+        if ($switch['idroom'] == $location) {
+            // we've got the switch that corresponds to this location, Motion was detected
+            if ($vdebug) echo "handleMotion found matching $location\n";
+          
+            // only take action if the strategy is motion, and the light is not forced on or off
+            if ($switch['strategy'] == 'motion') {
+               if ($debug) echo "handleMotion checking state for item $key\n";
+               switch ($switch['state']) {
+                    case ON:
+                        // if the light is on, keep it on, and extend the period
+                        $switch['tstamp'] = time() + $switch['duration']*60;
+                        break;
+                    case FORCEON:
+                    case FORCEOFF:
+                        // do nothing
+                        break;
+                    case OFF:
+                        // is it after sunset, before sunrise ?
+                        if ($in_the_dark) {
+                            // switch on that light
+                            $switch['state'] = ON;
+                            $switch['tstamp'] = time() + $switch['duration']*60;
+                            sendCommand ($key,'On');
+                        }
+                        break;
+                    default:
+                        // is it after sunset, before sunrise.... go to ON or OFF state
+                        if ($in_the_dark) {
+                            // switch on that light
+                            $switch['state'] = ON;
+                            $switch['tstamp'] = time() + $switch['duration']*60;
+                            sendCommand ($key,'On');
+                        } else {
+                            // switch off that light and get to known state
+                            $switch['state'] = OFF;
+                            $switch['tstamp'] = time();
+                            sendCommand ($key,'Off');
+                        }
+                        break;
+                        
+                } // switch
+            } // strategy
+            if ($debug) print_r ($switch);
+           
+        } // not the right location
+    }// foreach
+}
+
+// function to handle a timing event
+function handleTick() {
+    global $switches, $debug, $vdebug, $sunrise, $sunset, $in_the_dark;
+
+    reset ($switches);
+    foreach ($switches as $key => $switch) {
+        // we've got a switch that needs action, check the strategy
+        
+        $forced = false;
+        switch ($switch['state']) {
+            case FORCEON:
+                $forced = true;
+            case ON:
+                $active = true;
+                break;
+            case FORCEOFF:
+                $forced = true;
+            case OFF:
+            default:
+                $active = false;
+        }
+        if ($debug) echo "handleTick: active=$active, forced=$forced\n";
+        
+        switch ($switch['strategy']) {
+            case 'motion':
+                // check if timed-out, and on, then go off
+                if (!$forced && $active && $switch['tstamp'] <= time()) {
+                    $switch['state'] = OFF;
+                    $switch['tstamp'] = time();
+                    sendCommand ($key,'Off');
+                } elseif (!isset($switch['state'])) {
+                    // switch off that light and get to known state
+                    $switch['state'] = OFF;
+                    $switch['tstamp'] = time();
+                    sendCommand ($key,'Off');
+                }
+                break;
+            case 'sun':
+                // check if it is dark, then on... even if forced
+                if ($in_the_dark && !$active) {
+                    // switch on that light
+                    $switch['state'] = ON;
+                    $switch['tstamp'] = strtotime ("tomorrow ".$sunrise); // next event at sunrise tomorrow
+                    sendCommand ($key,'On');
+                }
+                if (!$in_the_dark && $active) {
+                    // switch off that light
+                    $switch['state'] = OFF;
+                    $switch['tstamp'] = strtotime ("today ".$sunset); // next event at sunset today
+                    sendCommand ($key,'Off');
+                }
+                break;    
+            case 'evening':
+                // evening only... even if forced, so automatic reset
+                $switch['time_off'] = '00:30';  // switch off at 30 past midnight
+                $switch['time_on'] = $sunset;
+                $off = strtotime("tomorrow ".$switch['time_off']);
+                $on = strtotime("today ".$switch['time_on']);
+                if (($switch['tstamp'] <= time())  && !$active) {
+                    // we're in the dark, and it is earlier than the time to switch off
+                    $switch['state'] = ON;
+                    $switch['tstamp'] = strtotime("tomorrow ".$switch['time_off']);     // set the time
+                    sendCommand ($key,'On');
+                }
+                if (($switch['tstamp'] <= time()) && $active) {
+                    // it is time to switch off
+                    $switch['state'] = OFF;
+                    $switch['tstamp'] = strtotime("tomorrow ".$switch['time_on']);     // set the time
+                    sendCommand ($key,'Off');
+                }
+                break;    
+            case 'simulate':
+                // in the evening, random on periods... calculate a duration
+                switch ($switch['state']) {
+                    case OFF:
+                        // schedule a new time in the evening interval
+                        $switch['duration'] = rand (15, 120);   // random between 15 minutes and two hours
+                        $start = rand (60,180);                 // start time
+                        $on = strtotime("today ".$sunset." + ".$start." min");
+                        $off = strtotime("today ".$switch['time_on']." + ".$switch['duration']." min");
+                        $switch['time_on'] = date ("H:i", $on);
+                        $switch['time_off'] = date ("H:i", $off);
+                        $switch['tstamp'] = $on;     // set the next event time
+                        $switch['state'] = SCHED;
+                        break;
+                    case ON:
+                        if (time() >= $switch['tstamp'] && $active) {
+                            // it is time to switch off
+                            $switch['state'] = OFF;
+                            sendCommand ($key,'Off');
+                        }
+                        break;    
+                    case SCHED:
+                        if (time() >= $switch['tstamp'] && !$active) {
+                            // we've scheduled, and it's time to switch on
+                            $switch['state'] = ON;
+                            $switch['tstamp'] = strtotime($switch['time_off']);     // set the next event time
+                            sendCommand ($key,'On');
+                        }
+                    default:
+                        break;
+                }
+                break;
+                
+            case 'time':
+                // within time interval time_on and time_off... except for when forced
+                $off = strtotime("today ".$switch['time_off']);
+                $on = strtotime("today ".$switch['time_on']);
+                if ($on <= time() && !$active) {
+                    // we're in the dark, and it is earlier than the time to switch off
+                    $switch['state'] = ON;
+                    $switch['tstamp'] = $off;     // set the time
+                    sendCommand ($key,'On');
+                }
+                if ($off <= time() && $active) {
+                    // it is time to switch off
+                    $switch['state'] = ON;
+                    $switch['tstamp'] = strtotime("tomorrow ".$switch['time_on']);     // set the time
+                    sendCommand ($key,'Off');
+                }
+                break;    
+            case 'light':
+                // how dark is it?
+                break;    
+            case 'event':
+                // currently not yet used
+                break;    
+        } // switch
+        
+        if ($debug) { echo "handleTick processed item \n"; print_r ($switch); }
+          
+
+    }// foreach
+}
+
+
+// Initialize
+function Initialize() {
+    global $switches, $debug, $vdebug;
+    // Open the database
+    $remote = open_remote_db();
+    if (!$remote) {
+        $message = date('Y-m-d H:i') . " Controller: Cannot open remote database " . mysql_error($remote) . "\n";
+        error_log($message, 3, $LOGFILE);
+        exit (1);
+    }
+
+    // retrieve all switch definitions
+    $query = "SELECT Switch.tstamp, description, idroom, location, strategy, command, kaku, time_on, time_off, state, duration FROM Switch,Sensor WHERE Sensor.id = Switch.sensor_id";
+    if ($vdebug) echo "Query ", $query, "\n";
+    if (($remres = mysql_query ($query, $remote))===false) {
+        $message = date('Y-m-d H:i') . " Controller: Could not read Contao database " . mysql_error($remote) . "\n";
+        error_log($message, 3, $LOGFILE);
+    }
+
+    // and create the $switches array with these fields
+    $numrows = mysql_num_rows($remres);
+    while ($numrows > 0) {
+        $numrows--;
+        $switches[] = mysql_fetch_array($remres, MYSQL_ASSOC);
+    }
+    
+    // database no longer needed
+    mysql_close ($remote);
+}
+
+
+// MAIN Code
+
+// connect to redis and quit if impossible, as we cannot do anything when that happens
+if (!$redis->isConnected()) {
+    try {
+        $redis->connect();
+        $pubredis = true;
+    }
+    catch (Exception $e) {
+        $pubredis = false;
+        $message = date('Y-m-d H:i') . " Cannot connect to Redis for subscribing " . $e->getMessage() . "\n";
+        error_log($message, 3, $LOGFILE);
+        // Just return to prevent the daemon from crashing
+        // exit(1);
+        return;
+    }
+}
+
 try {
-    $client = new Predis\Async\Client('tcp://127.0.0.1:6379');
+    $publish = new Predis\Client(array(
+        'scheme' => 'tcp',
+        'host'   => '127.0.0.1',
+        'port'   => 6379,
+        'database' => 1,
+        // no timeouts on socket
+        'read_write_timeout' => 0,
+    ));
 }
 catch (Exception $e) {
-    $message = date('Y-m-d H:i') . " Cannot connect to Redis " . $e->getMessage() . "\n";
+    $message = date('Y-m-d H:i') . " Cannot connect to Redis for publishing " . $e->getMessage() . "\n";
     error_log($message, 3, $LOGFILE);
     // Just return to prevent the daemon from crashing
     // exit(1);
     return;
 }
 
-date_default_timezone_set('Europe/Amsterdam');
 
-// DEBUG and other flags
-$debug = true;
+// Initialize the system
+Initialize();
 
-// don't timeout!
-set_time_limit(0);
+// show what we have
+if ($vdebug) print_r ($switches);
 
-$client->connect(function ($client) {
-    echo "Connected to Redis, now listening for incoming messages...\n";
 
-    $client->pubsub('ss:event', function ($event, $pubsub) {
-        $message = "Received message `%s` from channel `%s` [type: %s].\n";
+if ($pubredis) {
+    // Initialize a new pubsub context
+    $pubsub = $redis->pubSub();
 
-        $feedback = sprintf($message,
-            $event->payload,
-            $event->channel,
-            $event->kind
-        );
+    // Subscribe to your channels
+    $pubsub->subscribe('ss:event');
 
-        echo $feedback;
+    // Start processing the pubsub messages. Open a terminal and use redis-cli
+    // to push messages to the channels. Examples:
+    //   ./redis-cli PUBLISH notifications "this is a test"
+    //   ./redis-cli PUBLISH control_channel quit_loop
+    foreach ($pubsub as $message) {
+                        
+        // calculate sunrise and sunset using php functions
+        $zenith = 90+50/60;
+        $offset = 1; // offset from UTC in NL
+        $sunrise = date_sunrise (time(), SUNFUNCS_RET_STRING, $latitude, $longitude, $zenith, $offset);
+        $sunset = date_sunset (time(), SUNFUNCS_RET_STRING, $latitude, $longitude, $zenith, $offset);
 
-        if ($event->payload === 'quit') {
-            $pubsub->quit();
-        }
-    });
-});
+        // set in_the_dark to tru between sunset and sunrise
+        $sunrise_t = date_sunrise (time(), SUNFUNCS_RET_TIMESTAMP, $latitude, $longitude, $zenith, $offset);
+        $sunset_t = date_sunset (time(), SUNFUNCS_RET_TIMESTAMP, $latitude, $longitude, $zenith, $offset);
+        $in_the_dark = true;
+        if (time() > $sunrise_t) $in_the_dark = false;
+        if (time() > $sunset_t) $in_the_dark = true;
 
-$client->getEventLoop()->run();
+        // show what we have
+        if ($vdebug) { echo "Next loop: \n"; print_r ($switches); }
+    
+        switch ($message->kind) {
+            case 'subscribe':
+                if ($vdebug) echo "Subscribed to {$message->channel}\n";
+                break;
 
-$iter = 0;
-while ($iter < 100) {
-    echo "Iteration ", $iter;
-    $iter++;
-    sleep (10);
-}
+            case 'message':
+                if ($vdebug) echo "Received the following message from {$message->channel}:\n",
+                         "  {$message->payload}\n\n";
+                // determine the kind of message
+                $obj = json_decode ($message->payload);
+                if ($vdebug) print_r ($obj);
+                // if e is "newMessage" it is stuff from the Nodo
+                // if e is portux, then we deal with it below
+                if ($obj->e == 'newMessage') {
+                    handleIncoming ($obj->p[0]);
+                } elseif ($obj->e == 'portux') {
+                    // deal with the different kinds of message, take action on the 
+                    // switches in the array switch
+                    switch ($obj->p->type) {
+                        case 'Tick':
+                            handleTick();
+                            break;
+                        case 'Motion':
+                            handleMotion($obj->p->location);
+                            break;
+                    } // switch on type
+                } else {
+                    $message = date('Y-m-d H:i') . " Controller: unknown message type " . $obj->e . "\n";
+                    error_log($message, 3, $LOGFILE);
+                }
+                break;
+        } //switch on message kind
+    } // foreach message
+    
+} // if $pubredis
+
+// Always unset the pubsub context instance when you are done! The
+// class destructor will take care of cleanups and prevent protocol
+// desynchronizations between the client and the server.
+unset($pubsub);
 
 // Say goodbye :-)
-$info = $client->info();
+$info = $redis->info();
 print_r("Goodbye from Redis v{$info['redis_version']}!\n");
 
 ?>
