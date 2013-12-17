@@ -20,14 +20,13 @@
 
 // version 1.0
 
-// This program needs to be run from cron as a Daemon
+// This program needs to be run from inittab as a Daemon
 //
 // Currently it receives all data as Pub/Sub messages from the Redis instance stored
-// and run on the rpi1.local machine (see redis.php) and it uses the Redis instance
+// and run on the portux.local machine (see redis.php) and it uses a second Redis connection
 // to retrieve the current values of the lights etc.
 //
-// It uses the Predis/Async library for this (see https://github.com/nrk/predis-async)
-// and this needs https://github.com/nrk/phpiredis
+// It uses the Predis library for this 
 //
 // It controls the lights by sending a Redis PUB message with the Switch command, which
 // is currently executed on the rpi1.local machine by the server running under socketstream
@@ -38,6 +37,53 @@
 // to the serial port directly instead, simplifying this program.
 //
 // The control logic will however, remain intact.
+
+/**
+ * System_Daemon Code
+ * 
+ * If you run this code successfully, a daemon will be spawned
+ * and stopped directly. You should find a log enty in 
+ * /var/log/simple.log
+ * 
+ */
+
+// Make it possible to test in source directory
+// This is for PEAR developers only
+ini_set('include_path', ini_get('include_path').':..');
+
+// Include Class
+error_reporting(E_ALL);
+require_once "System/Daemon.php";
+
+// No PEAR, run standalone
+System_Daemon::setOption("usePEAR", false);
+
+// Setup
+$options = array(
+    'appName' => 'controller',
+    'appDir' => dirname(__FILE__),
+    'appDescription' => 'Controls lights from Redis Events',
+    'authorName' => 'Peter van Es',
+    'authorEmail' => 'vanesp@escurio.com',
+    'sysMaxExecutionTime' => '0',
+    'sysMaxInputTime' => '0',
+    'sysMemoryLimit' => '1024M',
+    'appRunAsGID' => 20,            // dialout group for /dev/ttyS1
+    'appRunAsUID' => 1000,
+);
+
+System_Daemon::setOptions($options);
+System_Daemon::log(System_Daemon::LOG_INFO, "Daemon not yet started so this ".
+    "will be written on-screen");
+
+// Spawn Deamon!
+System_Daemon::start();
+System_Daemon::log(System_Daemon::LOG_INFO, "Daemon: '".
+    System_Daemon::getOption("appName").
+    "' spawned! This will be written to ".
+    System_Daemon::getOption("logLocation"));
+
+
 
 
 // access information
@@ -80,10 +126,8 @@ set_time_limit(0);
 include('redis.php');
 
 // Global data structure 
-$debug = true;
+$debug = false;
 $vdebug = false;    // verbose
-$remote;
-
 
 // function to open the remote database
 function open_remote_db () {
@@ -94,14 +138,14 @@ function open_remote_db () {
     $remote = mysql_connect($RHOST, $RDBUSER, $RDBPASS);
     if (!$remote) {
  	    $message = date('Y-m-d H:i') . " Controller: Remote database connection failed " . mysql_error($remote) . "\n";
-	    error_log($message, 3, $LOGFILE);
+        System_Daemon::notice($message);
     }
 
     // See if we can open the database
     $db_r = mysql_select_db ($RDATABASE, $remote);
     if (!$db_r) {
     	$message = date('Y-m-d H:i') . " Controller: Failed to open $RDATABASE " . mysql_error($remote) . "\n";
-    	error_log($message, 3, $LOGFILE);
+        System_Daemon::notice($message);
     	$remote = false;
     }
     return $remote;
@@ -126,13 +170,13 @@ function sendCommand ($key, $state) {
     // update Redis using socketstream message
     $msg = new PubMessage;
     $msg->setParams($sensortype, $location, $quantity, $value);
-    if ($debug) echo "sendCommand publishing ".$sensortype." ".$location.": ".$quantity.$state."\n";
+    if ($vdebug) echo "sendCommand publishing ".$sensortype." ".$location.": ".$quantity.$state."\n";
     try {
             $publish->publish('ss:event', json_encode($msg));
     }
     catch (Exception $e) {
             $message = date('Y-m-d H:i') . " Controller: Cannot publish to Redis " . $e->getMessage() . "\n";
-            error_log($message, 3, $LOGFILE);
+            System_Daemon::notice($message);
             if ($vdebug) echo $message;
     }
     // wait for half a second or so
@@ -447,7 +491,8 @@ function Initialize() {
     $remote = open_remote_db();
     if (!$remote) {
         $message = date('Y-m-d H:i') . " Controller: Cannot open remote database " . mysql_error($remote) . "\n";
-        error_log($message, 3, $LOGFILE);
+        System_Daemon::notice($message);
+        System_Daemon::stop();
         exit (1);
     }
 
@@ -456,7 +501,7 @@ function Initialize() {
     if ($vdebug) echo "Query ", $query, "\n";
     if (($remres = mysql_query ($query, $remote))===false) {
         $message = date('Y-m-d H:i') . " Controller: Could not read Contao database " . mysql_error($remote) . "\n";
-        error_log($message, 3, $LOGFILE);
+        System_Daemon::notice($message);
     }
 
     // and create the $switches array with these fields
@@ -482,7 +527,7 @@ if (!$redis->isConnected()) {
     catch (Exception $e) {
         $pubredis = false;
         $message = date('Y-m-d H:i') . " Cannot connect to Redis for subscribing " . $e->getMessage() . "\n";
-        error_log($message, 3, $LOGFILE);
+        System_Daemon::notice($message);
         // Just return to prevent the daemon from crashing
         // exit(1);
         return;
@@ -500,8 +545,9 @@ try {
     ));
 }
 catch (Exception $e) {
+    $pubredis = false;
     $message = date('Y-m-d H:i') . " Cannot connect to Redis for publishing " . $e->getMessage() . "\n";
-    error_log($message, 3, $LOGFILE);
+    System_Daemon::notice($message);
     // Just return to prevent the daemon from crashing
     // exit(1);
     return;
@@ -583,7 +629,7 @@ if ($pubredis) {
                     } // switch on type
                 } else {
                     $message = date('Y-m-d H:i') . " Controller: unknown message type " . $obj->e . "\n";
-                    error_log($message, 3, $LOGFILE);
+                    System_Daemon::notice($message);
                 }
                 break;
         } //switch on message kind
@@ -596,8 +642,6 @@ if ($pubredis) {
 // desynchronizations between the client and the server.
 unset($pubsub);
 
-// Say goodbye :-)
-$info = $redis->info();
-print_r("Goodbye from Redis v{$info['redis_version']}!\n");
+System_Daemon::stop();
 
 ?>

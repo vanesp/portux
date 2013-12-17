@@ -1,12 +1,12 @@
 #! /bin/sh
 ### BEGIN INIT INFO
-# Provides:          timer
+# Provides:          controller
 # Required-Start:    $remote_fs
 # Required-Stop:     $remote_fs
-# chkconfig: 2345 30 80
+# chkconfig: 2345 50 80
 # Default-Start:     2 3 4 5
 # Default-Stop:      0 1 6
-# Short-Description: Sends redis tick message every minute
+# Short-Description: Controller processes redis messages and controls lights
 # Description:       This file should be used to construct scripts to be
 #                    placed in /etc/init.d.
 ### END INIT INFO
@@ -18,12 +18,12 @@
 
 # PATH should only include /usr/* if it runs after the mountnfs.sh script
 PATH=/sbin:/usr/sbin:/bin:/usr/bin
-DESC="Timer ticks once a minute"
-NAME=timer
+DESC="Controller processes redis messages and controls lights"
+NAME=controller
 DAEMON=/usr/bin/php
-DAEMON_ARGS="/home/pve/timer.php"
-PIDFILE="/var/run/timer.pid"
-SCRIPTNAME=/etc/init.d/timer
+DAEMON_ARGS="/home/pve/controller.php"
+PIDFILE="/var/run/controller.pid"
+SCRIPTNAME=/etc/init.d/controller
 
 # Exit if the package is not installed
 [ -x "$DAEMON" ] || exit 0

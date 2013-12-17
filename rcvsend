@@ -3,6 +3,7 @@
 # Provides:          rcvsend
 # Required-Start:    $remote_fs
 # Required-Stop:     $remote_fs
+# chkconfig: 2345 30 80
 # Default-Start:     2 3 4 5
 # Default-Stop:      0 1 6
 # Short-Description: Receives data from Arduino and stores it in MySQL database

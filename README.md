@@ -52,7 +52,6 @@ Additional kinds of messages are:
 * Tick messages (type is Tick, location is blank, as is quantity, value has a timestamp)
 
 
-
 ### Redis interface
 
 A php Redis interface is added to be able to Publish data values.
@@ -72,6 +71,11 @@ being installed in the subdirectory vendor/. They can then be included in the PH
 The Redis datastore resides on machine portux.local and is accessible via
 the standard port.
 
+It is also installed as a service and started as a daemon using redis_6379
+
+    sudo update-rc.d redis_6379 defaults 20 40
+
+
 ### Transforming to a Daemon
 
 Using System_Daemon, a PHP class that allows developers to create their own daemon 
@@ -84,12 +88,21 @@ More info at:
 
   [1]: http://kevin.vanzonneveld.net/techblog/article/create_daemons_in_php/
   
-Note that a file called rcvsend needs to be copied to /etc/init.d to start it up automatically,
-and it needs to be initialised by root as:
+Note that files called rcvsend, timer and controller need to be copied to /etc/init.d
+to start it up automatically, and it needs to be initialised by root as:
 
-    update-rc.d rcvsend start 20 2 3 4 5 . stop 20 0 1 6 .
+    sudo update-rc.d rcvsend start 40 2 3 4 5 . stop 40 0 1 6 .
+    sudo update-rc.d timer start 45 2 3 4 5 . stop 45 0 1 6 .
+    sudo update-rc.d controller start 50 2 3 4 5 . stop 40 0 1 6 .
 
 To remove, execute
 
-    update-rc.d rcvsend remove
+    sudo update-rc.d rcvsend remove
+    sudo update-rc.d timer remove
+    sudo update-rc.d controller remove
+   
+To start them manually, go to directory /etc/init.d and execute:
+
+    sudo ./rcvsend start
     
+etc, etc. 
