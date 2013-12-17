@@ -12,10 +12,10 @@
 //
 // </copyright>
 // <author>Peter van Es</author>
-// <version>1.5</version>
+// <version>1.4</version>
 // <email>vanesp@escurio.com</email>
-// <date>2013-12-17</date>
-// <summary>consume reads records from the local redis queue and stores them remotely</summary>
+// <date>2013-12-08</date>
+// <summary>consume reads records from the local database and stores them remotely</summary>
 
 // Everytime consume runs, it reads all the records from the local database,
 // interprets them, and stores them in the remote database
@@ -32,8 +32,6 @@
 // version 1.3 - stop filling the sensor log if not fatal
 
 // version 1.4 - use Redis Set mechanism instead of pub/sub for the measurement values
-
-// version 1.5 - retrieve queued values from local redis store instead of mysql
 
 // data for Cosm updates
 include('PachubeAPI.php');
@@ -91,6 +89,27 @@ function open_remote_db () {
     return $remote;
 }
 
+function open_local_db () {
+    global $LHOST, $LDBUSER, $LDBPASS, $LDATABASE, $LOGFILE;
+    $local = false;
+    // Open the database
+    // Open the database connection
+    $local = mysql_connect($LHOST, $LDBUSER, $LDBPASS);
+    if (!$local) {
+ 	    $message = date('Y-m-d H:i') . " Consume: Local database connection failed " . mysql_error($local) . "\n";
+	    error_log($message, 3, $LOGFILE);
+    }
+
+    // See if we can open the database
+    $db_l = mysql_select_db ($LDATABASE, $local);
+    if (!$db_l) {
+    	$message = date('Y-m-d H:i') . " Consume: Failed to open $LDATABASE " . mysql_error($local) . "\n";
+    	error_log($message, 3, $LOGFILE);
+    	$local = false;
+    }
+    return $local;
+}
+
 
 // Open the database
 $remote = open_remote_db();
@@ -100,32 +119,50 @@ if (!$remote) {
 	exit (1);
 }
 
-// open teh redis store... it is crucial now
+$local = open_local_db();
+if (!$local) {
+	$message = date('Y-m-d H:i') . " Consume: Cannot open local database " . mysql_error($local) . "\n";
+	error_log($message, 3, $LOGFILE);
+	exit (1);
+}
+
+// retrieve new, unprocessed records
+$lq = "SELECT * FROM rcvlog WHERE bP='0' ORDER BY ts";
+if ($debug) echo "Query ", $lq, "\n";
+if (($locres = mysql_query ($lq, $local))===false) {
+	$message = date('Y-m-d H:i') . " Consume: Could not read rcvlog " . mysql_error($local) . "\n";
+	error_log($message, 3, $LOGFILE);
+}
+
 if (!$redis->isConnected()) {
     try {
         $redis->connect();
     }
     catch (Exception $e) {
         $pubredis = false;
-        $message = date('Y-m-d H:i') . " Cannot connect to Redis " . $e->getMessage() . "\n";
-        error_log($message, 3, $LOGFILE);
-        exit(1);    // as there is no point in continuing
+        // don't bother to log it...
+        // $message = date('Y-m-d H:i') . " Cannot connect to Redis " . $e->getMessage() . "\n";
+        // error_log($message, 3, $LOGFILE);
     }
 }
 
-
-// how many items are there in our queue
-$numrows = $redis->llen('queue');
-
+$numrows = mysql_num_rows($locres);
 if ($numrows > 20) {                // if this is the case, we are in recovery
     $publish = false;
 }
-while ($msg = $redis->lpop('queue')) {     // while there is stuff in the queue
-    
-    $value = json_decode($msg);
-	if ($debug) print_r ($value);
-	$buf = $value->buf;
-	$ts = $value->tstamp;
+while ($numrows > 0) {
+	$numrows--;
+	$localrec = mysql_fetch_array($locres, MYSQL_ASSOC);
+	$localid = $localrec['id'];
+	$buf = $localrec['s'];
+	$ts = $localrec['ts'];
+
+	// create the local update query
+	$lupdq = "UPDATE rcvlog SET bP=1 WHERE id='".$localid."'";
+	// flag to see if we need to handle processed
+	$upd_done = false;	
+
+	// process another line
 	if ($debug) echo $buf;
 	
 	$field = explode(" ",$buf);
@@ -171,7 +208,7 @@ while ($msg = $redis->lpop('queue')) {     // while there is stuff in the queue
 				// somehow quantity does not come out of database correctly for temperature, so overrride
 				$quantity = '°C';
 			}
-			$insertq = "INSERT INTO Sensorlog SET pid='".$id."', tstamp='".$ts."', value='".$value."'";
+			$insertq = "INSERT INTO Sensorlog SET pid='".$id."', tstamp=UNIX_TIMESTAMP('".$ts."'), value='".$value."'";
 			if ($debug) echo $insertq, "\n";
 			if (($res = mysql_query ($insertq, $remote))===false) {
 				$message = date('Y-m-d H:i') . " Consume: Could not insert event " . mysql_error($remote) . "\n";
@@ -184,7 +221,7 @@ while ($msg = $redis->lpop('queue')) {     // while there is stuff in the queue
 				        $upd_done = true;	
 				}
 				// now update the sensor timestamp and battery status
-				$updateq = "UPDATE Sensor SET tstamp='".$ts."', lobatt=0 WHERE id='".$id."'";
+				$updateq = "UPDATE Sensor SET tstamp=UNIX_TIMESTAMP('".$ts."'), lobatt=0 WHERE id='".$id."'";
 				if ($debug) echo $updateq, "\n";
 				if (($res = mysql_query ($updateq, $remote))===false) {
 				        $message = date('Y-m-d H:i') . " Consume: Could not update Sensor " . mysql_error($remote) . "\n";
@@ -245,7 +282,7 @@ while ($msg = $redis->lpop('queue')) {     // while there is stuff in the queue
 			$datastream = $Record['datastream'];
 			$power = $field[1] * $scale;
 			$pulse = $field[2];
-			$insertq = "INSERT INTO Sensorlog SET pid='".$id."', tstamp='".$ts."', value='".$power."', count='".$pulse."'";
+			$insertq = "INSERT INTO Sensorlog SET pid='".$id."', tstamp=UNIX_TIMESTAMP('".$ts."'), value='".$power."', count='".$pulse."'";
 			if ($debug) echo $insertq, "\n";
 			if (($res = mysql_query ($insertq, $remote))===false) {
 				$message = date('Y-m-d H:i') . " Consume: Could not insert event " . mysql_error($remote) . "\n";
@@ -258,7 +295,7 @@ while ($msg = $redis->lpop('queue')) {     // while there is stuff in the queue
 				$upd_done = true;	
 			}
 			// now update the sensor timestamp and battery status
-			$updateq = "UPDATE Sensor SET tstamp='".$ts."', lobatt=0, cum_elec_pulse=cum_elec_pulse+".$pulse." WHERE id='".$id."'";
+			$updateq = "UPDATE Sensor SET tstamp=UNIX_TIMESTAMP('".$ts."'), lobatt=0, cum_elec_pulse=cum_elec_pulse+".$pulse." WHERE id='".$id."'";
 			if ($debug) echo $updateq, "\n";
 			if (($res = mysql_query ($updateq, $remote))===false) {
 				$message = date('Y-m-d H:i') . " Consume: Could not update Sensor " . mysql_error($remote) . "\n";
@@ -341,10 +378,10 @@ while ($msg = $redis->lpop('queue')) {     // while there is stuff in the queue
 				$lobat = $field[7] & 0x01;
 				if ($pir) {
 					// it is a PIR alert
-					$insertq = "INSERT INTO Motionlog SET pid='".$id."', tstamp='".$ts."', movement='1'";
+					$insertq = "INSERT INTO Motionlog SET pid='".$id."', tstamp=UNIX_TIMESTAMP('".$ts."'), movement='1'";
 				} else {
 					// regular data update 	
-					$insertq = "INSERT INTO Roomlog SET pid='".$id."', tstamp='".$ts."', light='".$light."', humidity='".$humid."', temp='".$temp."'";
+					$insertq = "INSERT INTO Roomlog SET pid='".$id."', tstamp=UNIX_TIMESTAMP('".$ts."'), light='".$light."', humidity='".$humid."', temp='".$temp."'";
 
 				}
 				if ($debug) echo $insertq, "\n";
@@ -359,7 +396,7 @@ while ($msg = $redis->lpop('queue')) {     // while there is stuff in the queue
 					$upd_done = true;	
 
 					// update Redis
-    			    // Motion records should be sent immediately, so
+    			        	// Motion records should be sent immediately, so
 					// they are sent by rcvsend.php
 					if (!$pir && $publish && $pubredis) {
 					        // update Redis using socketstream message
@@ -417,7 +454,7 @@ while ($msg = $redis->lpop('queue')) {     // while there is stuff in the queue
 					
 				}
 				// now update the sensor timestamp and battery status
-				$updateq = "UPDATE Sensor SET tstamp='".$ts."', lobatt='".$lobat."' WHERE id='".$id."'";
+				$updateq = "UPDATE Sensor SET tstamp=UNIX_TIMESTAMP('".$ts."'), lobatt='".$lobat."' WHERE id='".$id."'";
 				if ($debug) echo $updateq, "\n";
 				if (($res = mysql_query ($updateq, $remote))===false) {
 					$message = date('Y-m-d H:i') . " Consume: Could not update Sensor " . mysql_error($remote) . "\n";
@@ -427,8 +464,26 @@ while ($msg = $redis->lpop('queue')) {     // while there is stuff in the queue
 		} // if numrows
 	} // if GNR
 	
+	if ($upd_done) {
+		// updated on remote database, now fix local database
+		if ($debug) echo $lupdq, "\n";
+		if (($res = mysql_query ($lupdq, $local))===false) {
+			$message = date('Y-m-d H:i') . " Consume: Could not update local rcvlog " . mysql_error($local) . "\n";
+			error_log($message, 3, $LOGFILE);
+		}
+	}
+	
 } // while
 
+// delete processed records
+$lq = "DELETE FROM rcvlog WHERE bP='1'";
+if ($debug) echo "Query ", $lq, "\n";
+if (($result = mysql_query ($lq, $local))===false) {
+	$message = date('Y-m-d H:i') . " Consume: Could not delete local rcvlog " . mysql_error($local) . "\n";
+	error_log($message, 3, $LOGFILE);
+}
+
 mysql_close ($remote);
+mysql_close ($local);
 
 ?>
