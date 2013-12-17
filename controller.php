@@ -127,7 +127,6 @@ include('redis.php');
 
 // Global data structure 
 $debug = false;
-$vdebug = false;    // verbose
 
 // function to open the remote database
 function open_remote_db () {
@@ -153,7 +152,7 @@ function open_remote_db () {
 
 // function to send a command
 function sendCommand ($key, $state) {
-    global $debug, $vdebug, $publish, $switches, $LOGFILE;
+    global $debug, $publish, $switches, $LOGFILE;
     
     $sensortype = 'Switch';
     $location = $switches[$key]['description']; // or 2 or 3, or name of switch
@@ -162,7 +161,7 @@ function sendCommand ($key, $state) {
     if ($state == 'On') $value = true;
     $quantity = $switches[$key]['command'];
 
-    if ($vdebug) echo "sendCommand: key $key, $quantity\n";
+    if ($debug) System_Daemon::info("sendCommand ".$quantity."\n");
     
     // create the channel name for Pub/Sub
     $channel = 'portux.'.$sensortype.'.'.$location;
@@ -170,14 +169,12 @@ function sendCommand ($key, $state) {
     // update Redis using socketstream message
     $msg = new PubMessage;
     $msg->setParams($sensortype, $location, $quantity, $value);
-    if ($vdebug) echo "sendCommand publishing ".$sensortype." ".$location.": ".$quantity.$state."\n";
     try {
             $publish->publish('ss:event', json_encode($msg));
     }
     catch (Exception $e) {
             $message = date('Y-m-d H:i') . " Controller: Cannot publish to Redis " . $e->getMessage() . "\n";
             System_Daemon::notice($message);
-            if ($vdebug) echo $message;
     }
     // wait for half a second or so
     usleep (DELAY);
@@ -185,7 +182,7 @@ function sendCommand ($key, $state) {
 
 // function to handle an incoming message and act accordingly
 function handleIncoming($str) {
-    global $switches, $debug, $vdebug, $sunrise, $sunset, $timestate;
+    global $switches, $debug, $sunrise, $sunset, $timestate;
     
     // remove non-printable characters
     $str = preg_replace( '/[^[:print:]]/', '',$str);
@@ -193,7 +190,7 @@ function handleIncoming($str) {
     $msg = str_replace (', ',"\n", $str);
     // and parse it to an associative array with fields Direction, Source, and Event
     $cmd = parse_ini_string ($msg);
-    if ($debug) { echo "handleIncoming \n"; print_r ($cmd); }
+    if ($debug) System_Daemon::info("handleIncoming ".$msg."\n");
     
     // we only take action if it is an Input event
     if ($cmd['Direction'] == 'Input') {
@@ -215,7 +212,6 @@ function handleIncoming($str) {
             $ident = substr ($cmd['Event'], $begin, $len);
         }
         if (isset($ident)) {
-            if ($vdebug) echo "Identifier $ident\n";
             // loop through switches to find the one we have
             reset ($switches);
             foreach ($switches as &$switch) {
@@ -245,7 +241,6 @@ function handleIncoming($str) {
                         $switch['time_on'] = $sunset;  // switch on at sunset tomorrow
                         $switch['tstamp'] = strtotime("tomorrow ".$switch['time_on']);     // set the time
                     }
-                    if ($debug) { echo "handleIncoming record switched: \n"; print_r ($switch); }
                     
                 } // not the right switch
             }
@@ -264,21 +259,19 @@ function handleIncoming($str) {
 
 // function to handle a motion event on a location
 function handleMotion($location) {
-    global $switches, $debug, $vdebug, $sunrise, $sunset, $in_the_dark, $publish;
+    global $switches, $debug, $sunrise, $sunset, $in_the_dark, $publish;
 
-    if ($vdebug) echo "handleMotion processing location $location\n";
     reset ($switches);
     foreach ($switches as $key => &$switch) {
         if ($switch['idroom'] == $location) {
             // we've got the switch that corresponds to this location, Motion was detected
-            if ($vdebug) echo "handleMotion found matching $location\n";
           
             // only take action if the strategy is motion, and the light is not forced on or off
             if ($switch['strategy'] == 'motion') {
-               if ($vdebug) echo "handleMotion checking state for item $key\n";
+               if ($debug) System_Daemon::info("handleMotion checking state for item ".$key."\n");
                // get the most recent light value
                $light = $publish->get ($switch['location'].':Light');
-               if ($vdebug) echo "handleMotion light: $light\n"; 
+               if ($debug) echo System_Daemon::info("handleMotion checking light ".$light."\n");
                switch ($switch['state']) {
                     case 'ON':
                         // if the light is on, keep it on, and extend the period
@@ -314,7 +307,6 @@ function handleMotion($location) {
                         
                 } // switch
             } // strategy
-            if ($debug) { echo "handleMotion record inspected: \n"; print_r ($switch); }
            
         } // not the right location
     }// foreach
@@ -322,9 +314,8 @@ function handleMotion($location) {
 
 // function to reset all switches at startup to known state
 function resetAll() {
-    global $switches, $debug, $vdebug;
+    global $switches, $debug;
 
-    if ($debug) echo "resetAll\n";
     reset ($switches);
     foreach ($switches as $key => &$switch) {
         // we've got a switch that needs action, check the strategy
@@ -337,7 +328,7 @@ function resetAll() {
 
 // function to handle a timing event
 function handleTick() {
-    global $switches, $debug, $vdebug, $sunrise, $sunset, $in_the_dark;
+    global $switches, $debug, $sunrise, $sunset, $in_the_dark;
 
     reset ($switches);
     foreach ($switches as $key => &$switch) {
@@ -356,7 +347,7 @@ function handleTick() {
             default:
                 $active = false;
         }
-        if ($debug) echo "handleTick: active=$active, forced=$forced\n";
+        if ($debug) System_Daemon::info("handleTick active ".$active.",forced ".$forced."\n");
         
         switch ($switch['strategy']) {
             case 'motion':
@@ -459,7 +450,6 @@ function handleTick() {
             case 'light':
                // get the most recent light value
                $light = $publish->get ($switch['location'].':Light');
-               if ($vdebug) echo "handleTick light: $light\n"; 
                 if ($light < LIGHTLEVEL && !$active) {
                     // we're in the dark, and it is earlier than the time to switch off
                     $switch['state'] = 'ON';
@@ -476,9 +466,8 @@ function handleTick() {
                 // currently not yet used
                 break;    
         } // switch
-        
-        if ($vdebug) { echo "handleTick processed item \n"; print_r ($switch); }
-        if ($debug) echo "handleTick processed item $key\n"; 
+       
+        if ($debug) System_Daemon::info("handleTick processed item ".$key."\n");
          
     }// foreach
 }
@@ -486,7 +475,7 @@ function handleTick() {
 
 // Initialize
 function Initialize() {
-    global $switches, $debug, $vdebug;
+    global $switches, $debug;
     // Open the database
     $remote = open_remote_db();
     if (!$remote) {
@@ -498,7 +487,6 @@ function Initialize() {
 
     // retrieve all switch definitions
     $query = "SELECT Switch.tstamp, description, idroom, location, strategy, command, kaku, time_on, time_off, state, duration FROM Switch,Sensor WHERE Sensor.id = Switch.sensor_id";
-    if ($vdebug) echo "Query ", $query, "\n";
     if (($remres = mysql_query ($query, $remote))===false) {
         $message = date('Y-m-d H:i') . " Controller: Could not read Contao database " . mysql_error($remote) . "\n";
         System_Daemon::notice($message);
@@ -559,7 +547,6 @@ Initialize();
 
 // reset all switches and show what we have
 resetAll();
-if ($vdebug) print_r ($switches);
 
 // figureout the timestate, we only do this once, after that it is based on event msgs
 $zenith = 90+50/60;
@@ -598,20 +585,15 @@ if ($pubredis) {
         if (time() > $sunrise_t) $in_the_dark = false;
         if (time() > $sunset_t) $in_the_dark = true;
 
-        // show what we have
-        if ($vdebug) { echo "Next loop: \n"; print_r ($switches); }
-    
         switch ($message->kind) {
             case 'subscribe':
-                if ($vdebug) echo "Subscribed to {$message->channel}\n";
+                if ($debug) System_Daemon::info("Subscribed to {$message->channel}\n"); 
                 break;
 
             case 'message':
-                if ($vdebug) echo "Received the following message from {$message->channel}:\n",
-                         "  {$message->payload}\n\n";
+                if ($debug) System_Daemon::info("Received {$message->payload}\n"); 
                 // determine the kind of message
                 $obj = json_decode ($message->payload);
-                if ($vdebug) print_r ($obj);
                 // if e is "newMessage" it is stuff from the Nodo
                 // if e is portux, then we deal with it below
                 if ($obj->e == 'newMessage') {
