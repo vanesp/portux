@@ -20,8 +20,8 @@
 PATH=/sbin:/usr/sbin:/bin:/usr/bin
 DESC="Controller processes redis messages and controls lights"
 NAME=controller
-DAEMON=/usr/bin/php
-DAEMON_ARGS="/home/pve/controller.php"
+DAEMON=/home/pve/controller.php
+DAEMON_ARGS=
 PIDFILE="/var/run/controller.pid"
 SCRIPTNAME=/etc/init.d/controller
 

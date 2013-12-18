@@ -1,3 +1,4 @@
+#!/usr/bin/php
 <?php
 // Git version
 
@@ -83,9 +84,6 @@ System_Daemon::log(System_Daemon::LOG_INFO, "Daemon: '".
     "' spawned! This will be written to ".
     System_Daemon::getOption("logLocation"));
 
-
-
-
 // access information
 include('access.php');
 $LOGFILE = "controller.log";		// log history of actions
@@ -126,7 +124,7 @@ set_time_limit(0);
 include('redis.php');
 
 // Global data structure 
-$debug = false;
+$debug = true;
 
 // function to open the remote database
 function open_remote_db () {
@@ -333,7 +331,7 @@ function handleTick() {
     reset ($switches);
     foreach ($switches as $key => &$switch) {
         // we've got a switch that needs action, check the strategy
-        
+        $changed = false;
         $forced = false;
         switch ($switch['state']) {
             case 'FORCEON':
@@ -347,7 +345,6 @@ function handleTick() {
             default:
                 $active = false;
         }
-        if ($debug) System_Daemon::info("handleTick active ".$active.",forced ".$forced."\n");
         
         switch ($switch['strategy']) {
             case 'motion':
@@ -356,11 +353,13 @@ function handleTick() {
                     $switch['state'] = 'OFF';
                     $switch['tstamp'] = time();
                     sendCommand ($key,'Off');
+                    $changed = true;
                 } elseif (!isset($switch['state'])) {
                     // switch off that light and get to known state
                     $switch['state'] = 'OFF';
                     $switch['tstamp'] = time();
                     sendCommand ($key,'Off');
+                    $changed = true;
                 }
                 break;
             case 'sun':
@@ -370,12 +369,14 @@ function handleTick() {
                     $switch['state'] = 'ON';
                     $switch['tstamp'] = strtotime ("tomorrow ".$sunrise); // next event at sunrise tomorrow
                     sendCommand ($key,'On');
+                    $changed = true;
                 }
                 if (!$in_the_dark && $active) {
                     // switch off that light
                     $switch['state'] = 'OFF';
                     $switch['tstamp'] = strtotime ("today ".$sunset); // next event at sunset today
                     sendCommand ($key,'Off');
+                    $changed = true;
                 }
                 break;    
             case 'evening':
@@ -389,12 +390,14 @@ function handleTick() {
                     $switch['state'] = 'ON';
                     $switch['tstamp'] = strtotime("tomorrow ".$switch['time_off']);     // set the time
                     sendCommand ($key,'On');
+                    $changed = true;
                 }
                 if (($off <= time()) && $active) {
                     // it is time to switch off
                     $switch['state'] = 'OFF';
                     $switch['tstamp'] = strtotime("tomorrow ".$switch['time_on']);     // set the time
                     sendCommand ($key,'Off');
+                    $changed = true;
                 }
                 break;    
             case 'simulate':
@@ -410,12 +413,14 @@ function handleTick() {
                         $switch['time_off'] = date ("H:i", $off);
                         $switch['tstamp'] = $on;     // set the next event time
                         $switch['state'] = 'SCHED';
+                        $changed = true;
                         break;
                     case 'ON':
                         if (time() >= $switch['tstamp'] && $active) {
                             // it is time to switch off
                             $switch['state'] = 'OFF';
                             sendCommand ($key,'Off');
+                            $changed = true;
                         }
                         break;    
                     case 'SCHED':
@@ -424,6 +429,7 @@ function handleTick() {
                             $switch['state'] = 'ON';
                             $switch['tstamp'] = strtotime($switch['time_off']);     // set the next event time
                             sendCommand ($key,'On');
+                            $changed = true;
                         }
                     default:
                         break;
@@ -439,12 +445,14 @@ function handleTick() {
                     $switch['state'] = 'ON';
                     $switch['tstamp'] = $off;     // set the time
                     sendCommand ($key,'On');
+                    $changed = true;
                 }
                 if ($off <= time() && $active) {
                     // it is time to switch off
                     $switch['state'] = 'OFF';
                     $switch['tstamp'] = strtotime("tomorrow ".$switch['time_on']);     // set the time
                     sendCommand ($key,'Off');
+                    $changed = true;
                 }
                 break;    
             case 'light':
@@ -455,19 +463,21 @@ function handleTick() {
                     $switch['state'] = 'ON';
                     $switch['tstamp'] = time();     // set the time
                     sendCommand ($key,'On');
+                    $changed = true;
                 }
                 if ($light < LIGHTLEVEL && $active) {
                     // it is time to switch off
                     $switch['state'] = 'OFF';
                     $switch['tstamp'] = time();     // set the time
                     sendCommand ($key,'Off');
+                    $changed = true;
                 }
             case 'event':
                 // currently not yet used
                 break;    
         } // switch
        
-        if ($debug) System_Daemon::info("handleTick processed item ".$key."\n");
+        if ($debug && $changed) System_Daemon::info("handleTick changed ".print_r($switch, true)."\n");
          
     }// foreach
 }

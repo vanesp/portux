@@ -1396,9 +1396,12 @@ class System_Daemon
             );
         }
 
-        $pidDirPath = dirname($pidFilePath);
-        $parts      = explode('/', $pidDirPath);
-        if (count($parts) <= 3 || end($parts) != self::opt('appName')) {
+        // latest change according to
+        // https://github.com/kvz/system_daemon/commit/b8141de6413e129797f36b60c9b250c65ee39344
+        // $pidDirPath = dirname($pidFilePath);
+        // $parts      = explode('/', $pidDirPath);
+        // if (count($parts) <= 3 || end($parts) != self::opt('appName')) {
+        if(basename(dirname($pidFilePath)) !== self::opt('appName')) {
             // like: /var/run/x.pid
             return self::err(
                 'Since version 0.6.3, the pidfile needs to be ' .

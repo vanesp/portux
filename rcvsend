@@ -20,8 +20,8 @@
 PATH=/sbin:/usr/sbin:/bin:/usr/bin
 DESC="Arduino data receiver "
 NAME=rcvsend
-DAEMON=/usr/bin/php
-DAEMON_ARGS="/home/pve/rcvsend.php"
+DAEMON=/home/pve/rcvsend.php
+DAEMON_ARGS=
 PIDFILE="/var/run/rcvsend.pid"
 SCRIPTNAME=/etc/init.d/rcvsend
 

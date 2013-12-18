@@ -20,8 +20,8 @@
 PATH=/sbin:/usr/sbin:/bin:/usr/bin
 DESC="Timer ticks once a minute"
 NAME=timer
-DAEMON=/usr/bin/php
-DAEMON_ARGS="/home/pve/timer.php"
+DAEMON=/home/pve/timer.php
+DAEMON_ARGS=
 PIDFILE="/var/run/timer.pid"
 SCRIPTNAME=/etc/init.d/timer
 
