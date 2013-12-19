@@ -310,16 +310,71 @@ function handleMotion($location) {
     }// foreach
 }
 
+// function to determine if the time now is in between the two times mentioned
+// in ('HH:MM') format. If the start time is past the finish time, checks for tomorrow
+function inbetween($start, $finish) {
+    $start_t = strtotime("today ".$start);
+    $finish_t = strtotime("today ".$finish);
+    if ($start_t >= $finish_t) $finish_t = strtotime("tomorrow ".$finish);
+    $t = time();
+    if ($t >= $start_t && $t < $finish_t) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
 // function to reset all switches at startup to known state
 function resetAll() {
-    global $switches, $debug;
+    global $switches, $debug, $sunset, $sunrise, $timestate;
 
     reset ($switches);
     foreach ($switches as $key => &$switch) {
         // we've got a switch that needs action, check the strategy
         $switch['state'] = 'OFF';
         sendCommand ($key,'Off');
-        $switch['tstamp'] = time();
+
+        switch ($switch['strategy']) {
+            case 'sun':
+                $switch['time_off'] = $sunrise;  // switch off at 30 past midnight
+                $switch['time_on'] = $sunset;
+                if (!inbetween($switch['time_on'], $switch['time_off'])) {
+                    // switch is meant to stay off
+                    // set the first on time as the next action
+                    $switch['tstamp'] = strtotime("today ".$switch['time_on']);
+                } else {
+                    // in the time range, switch light back on and schedule off time
+                    $switch['state'] = 'ON';
+                    sendCommand ($key,'On');
+                    $switch['tstamp'] = strtotime("tomorrow ".$switch['time_off']);
+                }
+                break;
+            case 'evening':
+                $switch['time_off'] = '00:30';  // switch off at 30 past midnight
+                $switch['time_on'] = $sunset;
+                // this drops through to the next case statement but now with the already
+                // defined times
+            case 'time':
+                if (!inbetween($switch['time_on'], $switch['time_off'])) {
+                    // switch is meant to stay off
+                    // set the first on time as the next action
+                    $switch['tstamp'] = strtotime("today ".$switch['time_on']);
+                } else {
+                    // in the time range, switch light back on and schedule off time
+                    $switch['state'] = 'ON';
+                    sendCommand ($key,'On');
+                    $switch['tstamp'] = strtotime("tomorrow ".$switch['time_off']);
+                }
+                break;
+            // the following are self starting    
+            case 'simulate':
+            case 'motion':
+            case 'light':
+            case 'event': 
+            default:
+                $switch['tstamp'] = time();
+        }
+        
     }
 }
         
@@ -381,21 +436,17 @@ function handleTick() {
                 break;    
             case 'evening':
                 // evening only... even if forced, so automatic reset
-                $switch['time_off'] = '00:30';  // switch off at 30 past midnight
-                $switch['time_on'] = $sunset;
-                $off = strtotime("tomorrow ".$switch['time_off']);
-                $on = strtotime("today ".$switch['time_on']);
-                if (($on <= time())  && !$active) {
-                    // we're in the dark, and it is earlier than the time to switch off
+                if (inbetween ($switch['time_on'], $switch['time_off']) && !$active) {
+                    // in between times to switch off
                     $switch['state'] = 'ON';
-                    $switch['tstamp'] = strtotime("tomorrow ".$switch['time_off']);     // set the time
+                    $switch['tstamp'] = strtotime("tomorrow ".$switch['time_off']);     // next event at time_off tomorrow
                     sendCommand ($key,'On');
                     $changed = true;
                 }
-                if (($off <= time()) && $active) {
+                if (!inbetween ($switch['time_on'], $switch['time_off']) && $active) {
                     // it is time to switch off
                     $switch['state'] = 'OFF';
-                    $switch['tstamp'] = strtotime("tomorrow ".$switch['time_on']);     // set the time
+                    $switch['tstamp'] = strtotime("today ".$sunset);     // next event at sunset today
                     sendCommand ($key,'Off');
                     $changed = true;
                 }
@@ -438,19 +489,18 @@ function handleTick() {
                 
             case 'time':
                 // within time interval time_on and time_off... except for when forced
-                $off = strtotime("today ".$switch['time_off']);
                 $on = strtotime("today ".$switch['time_on']);
-                if ($on <= time() && !$active) {
-                    // we're in the dark, and it is earlier than the time to switch off
+                if (inbetween ($switch['time_on'], $switch['time_off']) && !$active) {
+                    // we're in the time interval
                     $switch['state'] = 'ON';
-                    $switch['tstamp'] = $off;     // set the time
+                    $switch['tstamp'] = strtotime("today ".$switch['time_off']);     // set the off time
                     sendCommand ($key,'On');
                     $changed = true;
                 }
-                if ($off <= time() && $active) {
+                if (!inbetween ($switch['time_on'], $switch['time_off']) && $active) {
                     // it is time to switch off
                     $switch['state'] = 'OFF';
-                    $switch['tstamp'] = strtotime("tomorrow ".$switch['time_on']);     // set the time
+                    $switch['tstamp'] = strtotime("tomorrow ".$switch['time_on']);     // set the on time
                     sendCommand ($key,'Off');
                     $changed = true;
                 }
@@ -555,20 +605,22 @@ catch (Exception $e) {
 // Initialize the system
 Initialize();
 
-// reset all switches and show what we have
-resetAll();
-
 // figureout the timestate, we only do this once, after that it is based on event msgs
 $zenith = 90+50/60;
 $offset = 1; // offset from UTC in NL
 $sunrise_t = date_sunrise (time(), SUNFUNCS_RET_TIMESTAMP, $latitude, $longitude, $zenith, $offset);
 $sunset_t = date_sunset (time(), SUNFUNCS_RET_TIMESTAMP, $latitude, $longitude, $zenith, $offset);
+$sunrise = date_sunrise (time(), SUNFUNCS_RET_STRING, $latitude, $longitude, $zenith, $offset);
+$sunset = date_sunset (time(), SUNFUNCS_RET_STRING, $latitude, $longitude, $zenith, $offset);
 
 $timestate = 0;
 if (time() > $sunrise_t - 2*60 ) $timestate = 1;
 if (time() > $sunrise) $timestate = 2;
 if (time() > $sunset_t - 2*60) $timestate = 3;
 if (time() > $sunset_t) $timestate = 4;
+       
+// reset all switches and show what we have
+resetAll();
         
 if ($pubredis) {
     // Initialize a new pubsub context
