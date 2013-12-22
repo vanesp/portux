@@ -124,7 +124,7 @@ set_time_limit(0);
 include('redis.php');
 
 // Global data structure 
-$debug = true;
+$debug = false;
 
 // function to open the remote database
 function open_remote_db () {
@@ -134,14 +134,14 @@ function open_remote_db () {
     // Open the database connection
     $remote = mysql_connect($RHOST, $RDBUSER, $RDBPASS);
     if (!$remote) {
- 	    $message = date('Y-m-d H:i') . " Controller: Remote database connection failed " . mysql_error($remote) . "\n";
+ 	    $message = date('Y-m-d H:i') . " Controller: Remote database connection failed " . mysql_error($remote);
         System_Daemon::notice($message);
     }
 
     // See if we can open the database
     $db_r = mysql_select_db ($RDATABASE, $remote);
     if (!$db_r) {
-    	$message = date('Y-m-d H:i') . " Controller: Failed to open $RDATABASE " . mysql_error($remote) . "\n";
+    	$message = date('Y-m-d H:i') . " Controller: Failed to open $RDATABASE " . mysql_error($remote);
         System_Daemon::notice($message);
     	$remote = false;
     }
@@ -159,7 +159,7 @@ function sendCommand ($key, $state) {
     if ($state == 'On') $value = true;
     $quantity = $switches[$key]['command'];
 
-    if ($debug) System_Daemon::info("sendCommand ".$quantity."\n");
+    if ($debug) System_Daemon::info("sendCommand ".$quantity);
     
     // create the channel name for Pub/Sub
     $channel = 'portux.'.$sensortype.'.'.$location;
@@ -171,7 +171,7 @@ function sendCommand ($key, $state) {
             $publish->publish('ss:event', json_encode($msg));
     }
     catch (Exception $e) {
-            $message = date('Y-m-d H:i') . " Controller: Cannot publish to Redis " . $e->getMessage() . "\n";
+            $message = date('Y-m-d H:i') . " Controller: Cannot publish to Redis " . $e->getMessage();
             System_Daemon::notice($message);
     }
     // wait for half a second or so
@@ -188,7 +188,7 @@ function handleIncoming($str) {
     $msg = str_replace (', ',"\n", $str);
     // and parse it to an associative array with fields Direction, Source, and Event
     $cmd = parse_ini_string ($msg);
-    // if ($debug) System_Daemon::info("handleIncoming ".$msg."\n");
+    // if ($debug) System_Daemon::info("handleIncoming ".$msg);
     
     // we only take action if it is an Input event
     if ($cmd['Direction'] == 'Input') {
@@ -253,7 +253,7 @@ function handleIncoming($str) {
             $begin = $i + 13; // ClockDayLight is 13 long
             $len = $end - $begin;   // length of the identifier
             $timestate = intval(substr ($cmd['Event'], $begin, $len));
-            if ($debug) System_Daemon::info("Timestate changed to ".$timestate."\n");
+            if ($debug) System_Daemon::info("Timestate changed to ".$timestate);
         }
     }
  }
@@ -269,10 +269,10 @@ function handleMotion($location) {
           
             // only take action if the strategy is motion, and the light is not forced on or off
             if ($switch['strategy'] == 'motion') {
-               if ($debug) System_Daemon::info("handleMotion checking state for item ".print_r($switch, true)."\n");
+               if ($debug) System_Daemon::info("handleMotion checking state for item ".print_r($switch, true));
                // get the most recent light value
                $light = $publish->get ($switch['location'].':Light');
-               if ($debug) System_Daemon::info("handleMotion checking light ".$light."\n");
+               if ($debug) System_Daemon::info("handleMotion checking light ".$light);
                switch ($switch['state']) {
                     case 'ON':
                         // if the light is on, keep it on, and extend the period
@@ -293,7 +293,7 @@ function handleMotion($location) {
                         break;
                     default:
                         // is it after sunset, before sunrise.... go to 'ON' or 'OFF' state
-                        if ($in_the_dark || $light < LIGHTLEVEL) {
+                        if ($in_the_dark || $light <= LIGHTLEVEL) {
                             // switch on that light
                             $switch['state'] = 'ON';
                             $switch['tstamp'] = time() + $switch['duration']*60;
@@ -507,14 +507,14 @@ function handleTick() {
             case 'light':
                // get the most recent light value
                $light = $publish->get ($switch['location'].':Light');
-                if ($light < LIGHTLEVEL && !$active) {
+                if ($light <= LIGHTLEVEL && !$active) {
                     // we're in the dark, and it is earlier than the time to switch off
                     $switch['state'] = 'ON';
                     $switch['tstamp'] = time();     // set the time
                     sendCommand ($key,'On');
                     $changed = true;
                 }
-                if ($light < LIGHTLEVEL && $active) {
+                if ($light > LIGHTLEVEL && $active) {
                     // it is time to switch off
                     $switch['state'] = 'OFF';
                     $switch['tstamp'] = time();     // set the time
@@ -526,7 +526,7 @@ function handleTick() {
                 break;    
         } // switch
        
-        if ($debug && $changed) System_Daemon::info("handleTick changed ".print_r($switch, true)."\n");
+        if ($debug && $changed) System_Daemon::info("handleTick changed ".print_r($switch, true));
          
     }// foreach
 }
@@ -538,7 +538,7 @@ function Initialize() {
     // Open the database
     $remote = open_remote_db();
     if (!$remote) {
-        $message = date('Y-m-d H:i') . " Controller: Cannot open remote database " . mysql_error($remote) . "\n";
+        $message = date('Y-m-d H:i') . " Controller: Cannot open remote database " . mysql_error($remote);
         System_Daemon::notice($message);
         System_Daemon::stop();
         exit (1);
@@ -547,7 +547,7 @@ function Initialize() {
     // retrieve all switch definitions
     $query = "SELECT Switch.tstamp, description, idroom, location, strategy, command, kaku, time_on, time_off, state, duration FROM Switch,Sensor WHERE Sensor.id = Switch.sensor_id";
     if (($remres = mysql_query ($query, $remote))===false) {
-        $message = date('Y-m-d H:i') . " Controller: Could not read Contao database " . mysql_error($remote) . "\n";
+        $message = date('Y-m-d H:i') . " Controller: Could not read Contao database " . mysql_error($remote);
         System_Daemon::notice($message);
     }
 
@@ -573,7 +573,7 @@ if (!$redis->isConnected()) {
     }
     catch (Exception $e) {
         $pubredis = false;
-        $message = date('Y-m-d H:i') . " Cannot connect to Redis for subscribing " . $e->getMessage() . "\n";
+        $message = date('Y-m-d H:i') . " Cannot connect to Redis for subscribing " . $e->getMessage();
         System_Daemon::notice($message);
         // Just return to prevent the daemon from crashing
         // exit(1);
@@ -593,7 +593,7 @@ try {
 }
 catch (Exception $e) {
     $pubredis = false;
-    $message = date('Y-m-d H:i') . " Cannot connect to Redis for publishing " . $e->getMessage() . "\n";
+    $message = date('Y-m-d H:i') . " Cannot connect to Redis for publishing " . $e->getMessage();
     System_Daemon::notice($message);
     // Just return to prevent the daemon from crashing
     // exit(1);
@@ -621,7 +621,7 @@ if (time() > $sunset_t) $timestate = 4;
 // reset all switches and show what we have
 resetAll();
 
-if ($debug) System_Daemon::info("After initialization ".print_r($switches, true)."\n");
+if ($debug) System_Daemon::info("After initialization ".print_r($switches, true));
 
 
 $count = 0;     // counter for number of messages
@@ -657,11 +657,11 @@ if ($pubredis) {
 
         switch ($message->kind) {
             case 'subscribe':
-                if ($debug) System_Daemon::info("Subscribed to {$message->channel}\n"); 
+                if ($debug) System_Daemon::info("Subscribed to {$message->channel}"); 
                 break;
 
             case 'message':
-                // if ($debug) System_Daemon::info("Received {$message->payload}\n"); 
+                // if ($debug) System_Daemon::info("Received {$message->payload}"); 
                 // determine the kind of message
                 $obj = json_decode ($message->payload);
                 // if e is "newMessage" it is stuff from the Nodo
@@ -680,7 +680,7 @@ if ($pubredis) {
                             break;
                     } // switch on type
                 } else {
-                    $message = date('Y-m-d H:i') . " Controller: unknown message type " . $obj->e . "\n";
+                    $message = date('Y-m-d H:i') . " Controller: unknown message type " . $obj->e;
                     System_Daemon::notice($message);
                 }
                 break;
