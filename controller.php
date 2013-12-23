@@ -95,7 +95,8 @@ $sunset = '17:30';
 $in_the_dark = false;
 
 // defines
-define ('LIGHTLEVEL', 60);      // light level below which to switch (in %)
+define ('LIGHTLEVEL', 50);      // light level below which to switch (in %)
+define ('OFF', 25);             // note the off level is higher to prevent switching off due to own light
 define ('DELAY', 500000);       // delay in microseconds after a send command (0.5s)
 
 // states recognized for lights:
@@ -271,7 +272,7 @@ function handleMotion($location) {
             if ($switch['strategy'] == 'motion') {
                if ($debug) System_Daemon::info("handleMotion checking state for item ".print_r($switch, true));
                // get the most recent light value
-               $light = $publish->get ($switch['location'].':Light');
+               $light = intval($publish->get ($switch['location'].':Light'));
                if ($debug) System_Daemon::info("handleMotion checking light ".$light);
                switch ($switch['state']) {
                     case 'ON':
@@ -298,7 +299,7 @@ function handleMotion($location) {
                             $switch['state'] = 'ON';
                             $switch['tstamp'] = time() + $switch['duration']*60;
                             sendCommand ($key,'On');
-                        } else {
+                        } elseif (!$in_the_dark && $light > (LIGHTLEVEL + OFF)) {
                             // switch off that light and get to known state
                             $switch['state'] = 'OFF';
                             $switch['tstamp'] = time();
@@ -506,7 +507,7 @@ function handleTick() {
                 
             case 'light':
                // get the most recent light value
-               $light = $publish->get ($switch['location'].':Light');
+               $light = intval($publish->get ($switch['location'].':Light'));
                 if ($light <= LIGHTLEVEL && !$active) {
                     // we're in the dark, and it is earlier than the time to switch off
                     $switch['state'] = 'ON';
@@ -514,7 +515,7 @@ function handleTick() {
                     sendCommand ($key,'On');
                     $changed = true;
                 }
-                if ($light > LIGHTLEVEL && $active) {
+                if ($light > (LIGHTLEVEL + OFF) && $active) {
                     // it is time to switch off
                     $switch['state'] = 'OFF';
                     $switch['tstamp'] = time();     // set the time
