@@ -96,7 +96,7 @@ $in_the_dark = false;
 
 // defines
 define ('LIGHTLEVEL', 50);      // light level below which to switch (in %)
-define ('OFF', 25);             // note the off level is higher to prevent switching off due to own light
+define ('LIGHTOFF', 75);             // note the off level is higher to prevent switching off due to own light
 define ('DELAY', 500000);       // delay in microseconds after a send command (0.5s)
 
 // states recognized for lights:
@@ -285,7 +285,7 @@ function handleMotion($location) {
                         break;
                     case 'OFF':
                         // is it after sunset, before sunrise ?
-                        if ($in_the_dark) {
+                        if ($in_the_dark  || $light <= LIGHTLEVEL) {
                             // switch on that light
                             $switch['state'] = 'ON';
                             $switch['tstamp'] = time() + $switch['duration']*60;
@@ -299,7 +299,7 @@ function handleMotion($location) {
                             $switch['state'] = 'ON';
                             $switch['tstamp'] = time() + $switch['duration']*60;
                             sendCommand ($key,'On');
-                        } elseif (!$in_the_dark && $light > (LIGHTLEVEL + OFF)) {
+                        } else {
                             // switch off that light and get to known state
                             $switch['state'] = 'OFF';
                             $switch['tstamp'] = time();
@@ -515,7 +515,7 @@ function handleTick() {
                     sendCommand ($key,'On');
                     $changed = true;
                 }
-                if ($light > (LIGHTLEVEL + OFF) && $active) {
+                if ($light > LIGHTOFF && $active) {
                     // it is time to switch off
                     $switch['state'] = 'OFF';
                     $switch['tstamp'] = time();     // set the time
