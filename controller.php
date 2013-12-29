@@ -411,7 +411,9 @@ function handleTick() {
         switch ($switch['strategy']) {
             case 'motion':
                 // check if timed-out, and on, then go off
-                if (!$forced && $active && $switch['tstamp'] <= time()) {
+                // if (!$forced && $active && $switch['tstamp'] <= time()) {
+				// removed the forced check so that it switches back to regular use at the timestamp set
+                if ($active && $switch['tstamp'] <= time()) {
                     $switch['state'] = 'OFF';
                     $switch['tstamp'] = time();
                     sendCommand ($key,'Off');
