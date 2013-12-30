@@ -86,8 +86,6 @@ System_Daemon::log(System_Daemon::LOG_INFO, "Daemon: '".
 
 // access information
 include('access.php');
-$LOGFILE = "controller.log";		// log history of actions
-$LEN = 128;						// records are max 128 bytes
 $latitude = 52.2395602;         // details for Hilversum
 $longitude = 5.1525346;
 $sunrise = '08:00';             // will be overwritten every loop
@@ -126,10 +124,11 @@ include('redis.php');
 
 // Global data structure 
 $debug = false;
+$showstatus = true;		// do we send status message to node.js app?
 
 // function to open the remote database
 function open_remote_db () {
-    global $RHOST, $RDBUSER, $RDBPASS, $RDATABASE, $LOGFILE;
+    global $RHOST, $RDBUSER, $RDBPASS, $RDATABASE;
     $remote = false;
     // Open the database
     // Open the database connection
@@ -151,7 +150,7 @@ function open_remote_db () {
 
 // function to send a command
 function sendCommand ($key, $state) {
-    global $debug, $publish, $switches, $LOGFILE;
+    global $debug, $showstatus, $publish, $switches;
     
     $sensortype = 'Switch';
     $location = $switches[$key]['description']; // or 2 or 3, or name of switch
@@ -177,6 +176,18 @@ function sendCommand ($key, $state) {
     }
     // wait for half a second or so
     usleep (DELAY);
+    
+    if ($showstatus) {
+		$channel = 'portux.status.'.$location;
+		$value = $switches[$key]['state'];
+		$sensortype = 'status';
+		$quantity = $switches[$key]['strategy'].' '.date('Y-m-d H:i:s', $switches[$key]['tstamp']);
+		// update Redis using socketstream message
+		$msg = new PubMessage;
+		$msg->setParams($sensortype, $location, $quantity, $value);
+        $publish->publish('ss:event', json_encode($msg));
+    }
+
 }
 
 // function to handle an incoming message and act accordingly
@@ -228,9 +239,9 @@ function handleIncoming($str) {
                         } else {
                             $switch['state'] = 'FORCEON';
                         }
-                        sendCommand ($key,'On');        // make sure it is on
                         $switch['time_off'] = '00:30';  // switch off at 30 past midnight
                         $switch['tstamp'] = strtotime("tomorrow ".$switch['time_off']);     // set the time
+                        sendCommand ($key,'On');        // make sure it is on
                     }
                     if ($newstate == 'FORCEOFF') {
                         if ($forced) {
@@ -238,10 +249,10 @@ function handleIncoming($str) {
                         } else {
                             $switch['state'] = 'FORCEOFF';
                         }
-                        sendCommand ($key,'Off');        // make sure it is off
                         $switch['time_on'] = $sunset;  // switch on at sunset tomorrow
                         $switch['tstamp'] = strtotime("tomorrow ".$switch['time_on']);     // set the time
-                    }
+                        sendCommand ($key,'Off');        // make sure it is off
+                   }
                     
                 } // not the right switch
             }
