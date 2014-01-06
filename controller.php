@@ -55,7 +55,7 @@
  */
 
 // Global data structure 
-$debug = false;
+$debug = true;
 $showstatus = true;		// do we send status message to node.js app?
 
 // Make it possible to test in source directory
@@ -98,13 +98,13 @@ System_Daemon::log(System_Daemon::LOG_INFO, "Daemon: '".
 include('access.php');
 $latitude = 52.2395602;         // details for Hilversum
 $longitude = 5.1525346;
-$sunrise = '08:00';             // will be overwritten every loop
-$sunset = '17:30';
+$sunrise = "08:00";             // will be overwritten every loop
+$sunset = "17:30";
 $in_the_dark = false;
 
 // defines
 define ('LIGHTLEVEL', 50);      // light level below which to switch (in %)
-define ('LIGHTOFF', 75);        // note the off level is higher to prevent switching off due to own light
+define ('LIGHTOFF', 70);        // note the off level is higher to prevent switching off due to own light
 define ('DELAY', 500000);       // delay in microseconds after a send command (0.5s)
 
 // states recognized for lights:
@@ -236,15 +236,8 @@ function handleIncoming($str) {
             reset ($switches);
             foreach ($switches as $key => &$switch) {
                 if ($switch['kaku'] == $ident) {
-                    // get the current state... cycle from 'FORCEON' -> 'ON' etc
-                    if (($switch['state'] == 'FORCEON') || ($switch['state'] == 'FORCEOFF')) {
-                        $forced = true;
-                    } else {
-                        $forced = false;
-                    }
-
                     if ($newstate == 'FORCEON') {
-                        if ($forced) {
+                        if ($switch['state'] == 'FORCEON') {
                             $switch['state'] = 'ON';
                         } else {
                             $switch['state'] = 'FORCEON';
@@ -254,7 +247,7 @@ function handleIncoming($str) {
                         sendCommand ($key,'On');        // make sure it is on
                     }
                     if ($newstate == 'FORCEOFF') {
-                        if ($forced) {
+                        if ($switch['state'] == 'FORCEOFF') {
                             $switch['state'] = 'OFF';
                         } else {
                             $switch['state'] = 'FORCEOFF';
@@ -263,7 +256,8 @@ function handleIncoming($str) {
                         $switch['tstamp'] = strtotime("tomorrow ".$switch['time_on']);     // set the time
                         sendCommand ($key,'Off');        // make sure it is off
                    }
-                    
+                   if ($debug) System_Daemon::info("handleIncoming changed ".print_r($switch, true));
+  
                 } // not the right switch
             }
         }
@@ -299,14 +293,18 @@ function handleMotion($location) {
                     case 'ON':
                         // if the light is on, keep it on, and extend the period
                         $switch['tstamp'] = time() + $switch['duration']*60;
+                        // and make sure it is really on
+                        if ($switch['olddim'] == 0 ) {
+                            sendCommand ($key,'On');
+                        }
                         break;
                     case 'FORCEON':
                     case 'FORCEOFF':
-                        // do nothing
+                        // do nothing with motion
                         break;
                     case 'OFF':
                         // is it after sunset, before sunrise ?
-                        if ($in_the_dark  || $light <= LIGHTLEVEL) {
+                        if ($in_the_dark || $light <= LIGHTLEVEL) {
                             // switch on that light
                             $switch['state'] = 'ON';
                             $switch['tstamp'] = time() + $switch['duration']*60;
@@ -314,18 +312,10 @@ function handleMotion($location) {
                         }
                         break;
                     default:
-                        // is it after sunset, before sunrise.... go to 'ON' or 'OFF' state
-                        if ($in_the_dark || $light <= LIGHTLEVEL) {
-                            // switch on that light
-                            $switch['state'] = 'ON';
-                            $switch['tstamp'] = time() + $switch['duration']*60;
-                            sendCommand ($key,'On');
-                        } else {
-                            // switch off that light and get to known state
-                            $switch['state'] = 'OFF';
-                            $switch['tstamp'] = time();
-                            sendCommand ($key,'Off');
-                        }
+                        // switch off that light and get to known state
+                        $switch['state'] = 'OFF';
+                        $switch['tstamp'] = time();
+                        sendCommand ($key,'Off');
                 } // switch
             } // strategy
            
@@ -360,11 +350,12 @@ function resetAll() {
     foreach ($switches as $key => &$switch) {
         // we've got a switch that needs action, check the strategy
         $switch['state'] = 'OFF';
+        $switch['count'] = 1;
         sendCommand ($key,'Off');
 
         switch ($switch['strategy']) {
             case 'sun':
-                $switch['time_off'] = $sunrise;  // switch off at 30 past midnight
+                $switch['time_off'] = $sunrise;  // switch off at sunrise
                 $switch['time_on'] = $sunset;
                 if (!inbetween($switch['time_on'], $switch['time_off'])) {
                     // switch is meant to stay off
@@ -378,7 +369,9 @@ function resetAll() {
                 }
                 break;
             case 'evening':
-                $switch['time_off'] = '00:30';  // switch off at 30 past midnight
+            	if (!isset($switch['time_off'])) {
+                	$switch['time_off'] = "00:00";  // this time is normally in the record, do not overwrite
+                }
                 $switch['time_on'] = $sunset;
                 // this drops through to the next case statement but now with the already
                 // defined times
@@ -409,7 +402,7 @@ function resetAll() {
 
 // function to handle a timing event
 function handleTick() {
-    global $switches, $debug, $sunrise, $sunset, $in_the_dark, $publish;
+    global $switches, $debug, $sunrise, $sunset, $in_the_dark, $publish, $showstatus;
 
     reset ($switches);
     foreach ($switches as $key => &$switch) {
@@ -443,9 +436,12 @@ function handleTick() {
                 sendCommand ($key,'On');
                 $changed = true;
             }
-            // if it is dark out, and we're meant to be off, and the level is too high, 
+            // if it is dark out or we're meant to be off or the level is too high, 
             // try switching it off again
-            if (!$active && $in_the_dark && $light > LIGHTLEVEL) { 
+            // if (!$active && $in_the_dark && $light > LIGHTLEVEL) { 
+            // PvE: 5 jan
+            // changed to: meant to be off... ensure it is off
+            if (!$active) { 
                 sendCommand ($key,'Off');
                 $changed = true;
             }
@@ -454,9 +450,7 @@ function handleTick() {
         switch ($switch['strategy']) {
             case 'motion':
                 // check if timed-out, and on, then go off
-                // if (!$forced && $active && $switch['tstamp'] <= time()) {
-				// removed the forced check so that it switches back to regular use at the timestamp set
-                if ($active && ($switch['tstamp'] <= time())) {
+                 if (!$forced && $active && ($switch['tstamp'] <= time())) {
                     $switch['state'] = 'OFF';
                     $switch['tstamp'] = time();
                     sendCommand ($key,'Off');
@@ -542,8 +536,8 @@ function handleTick() {
                 break;
                 
             case 'light':
-               // get the most recent light value
-               $light = intval($publish->get ($switch['location'].':Light'));
+                // get the most recent light value
+                $light = intval($publish->get ($switch['location'].':Light'));
                 if (($light <= LIGHTLEVEL) && !$active) {
                     // we're in the dark, and it is earlier than the time to switch off
                     $switch['state'] = 'ON';
@@ -563,7 +557,7 @@ function handleTick() {
                 break;    
         } // switch
        
-        if ($debug && $changed) System_Daemon::info("handleTick changed ".print_r($switch, true));
+        if ($showstatus && $changed) System_Daemon::info("handleTick changed ".print_r($switch, true));
          
     }// foreach
 }
