@@ -5,7 +5,7 @@
 // Escurio
 // http://www.escurio.com/
 //
-// THIS CODE AND INFORMATION ARE PROVIDED "AS IS" WITHOUT WARRANTY OF ANY 
+// THIS CODE AND INFORMATION ARE PROVIDED "AS IS" WITHOUT WARRANTY OF ANY
 // KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
 // IMPLIED WARRANTIES OF MERCHANTABILITY AND/OR FITNESS FOR A
 // PARTICULAR PURPOSE.
@@ -27,7 +27,7 @@
 // version 1.1 - publication to a Redis database of up-to-date information is performed.
 
 // version 1.2 - much more resilience if redis is not there, and does not publish data
-//               if its playing catch-up
+//				 if its playing catch-up
 
 // version 1.3 - stop filling the sensor log if not fatal
 
@@ -63,32 +63,32 @@ date_default_timezone_set('Europe/Amsterdam');
 
 // DEBUG and other flags
 $debug = false;
-$publish = true;       // publish data? (Pachube/Redis)
-$pubredis = true;      // publish redis?
+$publish = true;	   // publish data? (Pachube/Redis)
+$pubredis = true;	   // publish redis?
 
 // don't timeout!
 set_time_limit(0);
 
 // function to open the database
 function open_remote_db () {
-    global $RHOST, $RDBUSER, $RDBPASS, $RDATABASE, $LOGFILE;
-    $remote = false;
-    // Open the database
-    // Open the database connection
-    $remote = mysql_connect($RHOST, $RDBUSER, $RDBPASS);
-    if (!$remote) {
- 	    $message = date('Y-m-d H:i') . " Consume: Remote database connection failed " . mysql_error($remote) . "\n";
-	    error_log($message, 3, $LOGFILE);
-    }
+	global $RHOST, $RDBUSER, $RDBPASS, $RDATABASE, $LOGFILE;
+	$remote = false;
+	// Open the database
+	// Open the database connection
+	$remote = mysql_connect($RHOST, $RDBUSER, $RDBPASS);
+	if (!$remote) {
+		$message = date('Y-m-d H:i') . " Consume: Remote database connection failed " . mysql_error($remote) . "\n";
+		error_log($message, 3, $LOGFILE);
+	}
 
-    // See if we can open the database
-    $db_r = mysql_select_db ($RDATABASE, $remote);
-    if (!$db_r) {
-    	$message = date('Y-m-d H:i') . " Consume: Failed to open $RDATABASE " . mysql_error($remote) . "\n";
-    	error_log($message, 3, $LOGFILE);
-    	$remote = false;
-    }
-    return $remote;
+	// See if we can open the database
+	$db_r = mysql_select_db ($RDATABASE, $remote);
+	if (!$db_r) {
+		$message = date('Y-m-d H:i') . " Consume: Failed to open $RDATABASE " . mysql_error($remote) . "\n";
+		error_log($message, 3, $LOGFILE);
+		$remote = false;
+	}
+	return $remote;
 }
 
 
@@ -102,32 +102,32 @@ if (!$remote) {
 
 // open teh redis store... it is crucial now
 if (!$redis->isConnected()) {
-    try {
-        $redis->connect();
-    }
-    catch (Exception $e) {
-        $pubredis = false;
-        $message = date('Y-m-d H:i') . " Cannot connect to Redis " . $e->getMessage() . "\n";
-        error_log($message, 3, $LOGFILE);
-        exit(1);    // as there is no point in continuing
-    }
+	try {
+		$redis->connect();
+	}
+	catch (Exception $e) {
+		$pubredis = false;
+		$message = date('Y-m-d H:i') . " Cannot connect to Redis " . $e->getMessage() . "\n";
+		error_log($message, 3, $LOGFILE);
+		exit(1);	// as there is no point in continuing
+	}
 }
 
 
 // how many items are there in our queue
 $numrows = $redis->llen('queue');
 
-if ($numrows > 20) {                // if this is the case, we are in recovery
-    $publish = false;
+if ($numrows > 20) {				// if this is the case, we are in recovery
+	$publish = false;
 }
-while ($msg = $redis->lpop('queue')) {     // while there is stuff in the queue
-    
-    $value = json_decode($msg);
+while ($msg = $redis->lpop('queue')) {	   // while there is stuff in the queue
+
+	$value = json_decode($msg);
 	if ($debug) print_r ($value);
 	$buf = $value->buf;
 	$ts = $value->tstamp;
 	if ($debug) echo $buf;
-	
+
 	$field = explode(" ",$buf);
 	if ($debug) print_r ($field);
 	// see if field[0] is in our map of simple sensors
@@ -176,44 +176,44 @@ while ($msg = $redis->lpop('queue')) {     // while there is stuff in the queue
 			if (($res = mysql_query ($insertq, $remote))===false) {
 				$message = date('Y-m-d H:i') . " Consume: Could not insert event " . mysql_error($remote) . "\n";
 				error_log($message, 3, $LOGFILE);
-                                if (mysql_errno($remote) === 1062) {
-                                        // it is a Duplicate Key message... delete the record anyway by setting $upd_done to true
-                                        $upd_done = true;
-                                } 
-                                } else {
-				        $upd_done = true;	
+				if (mysql_errno($remote) === 1062) {
+					// it is a Duplicate Key message... delete the record anyway by setting $upd_done to true
+					$upd_done = true;
+				}
+				} else {
+					$upd_done = true;
 				}
 				// now update the sensor timestamp and battery status
 				$updateq = "UPDATE Sensor SET tstamp='".$ts."', lobatt=0 WHERE id='".$id."'";
 				if ($debug) echo $updateq, "\n";
 				if (($res = mysql_query ($updateq, $remote))===false) {
-				        $message = date('Y-m-d H:i') . " Consume: Could not update Sensor " . mysql_error($remote) . "\n";
-				        error_log($message, 3, $LOGFILE);
-                                }
-                                if ($publish) {
-                                        if ($pubredis) {
-                                                // update Redis using socketstream message
-                                                $msg = new PubMessage;
-                                                $msg->setParams($sensortype, $location, $quantity, $value);
-                                                if ($debug) echo "Redis publishing ".$sensortype." ".$location.": ".$value."\n";
-                                                try {
-                                                        // update Redis using Set
-                                        			    $key = $location.":".$sensortype;
-                                                        $redis->set ($key, $value); 
-                                                        // $redis->publish('ss:event', json_encode($msg));
-                                                }
-                                                catch (Exception $e) {
-                                                        $message = date('Y-m-d H:i') . " Consume: Cannot publish to Redis " . $e->getMessage() . "\n";
-                                                        if ($debug) error_log($message, 3, $LOGFILE);
-                                                }
-                                        }
-                                        // and update Pachube / Cosm
-                                        $data = '"' . $value . '"';
-                                        if ($datastream != '') {
-                                                $result = $pachube->updateDataStream("csv", $feed, $datastream, $data);
-                                        }
-                                }
-                        }
+					$message = date('Y-m-d H:i') . " Consume: Could not update Sensor " . mysql_error($remote) . "\n";
+					error_log($message, 3, $LOGFILE);
+				}
+				if ($publish) {
+					if ($pubredis) {
+						// update Redis using socketstream message
+						$msg = new PubMessage;
+						$msg->setParams($sensortype, $location, $quantity, $value);
+						if ($debug) echo "Redis publishing ".$sensortype." ".$location.": ".$value."\n";
+						try {
+							// update Redis using Set
+							$key = $location.":".$sensortype;
+							$redis->set ($key, $value);
+							// $redis->publish('ss:event', json_encode($msg));
+						}
+						catch (Exception $e) {
+							$message = date('Y-m-d H:i') . " Consume: Cannot publish to Redis " . $e->getMessage() . "\n";
+							if ($debug) error_log($message, 3, $LOGFILE);
+						}
+					}
+					// and update Pachube / Cosm
+					$data = '"' . $value . '"';
+					if ($datastream != '') {
+							$result = $pachube->updateDataStream("csv", $feed, $datastream, $data);
+					}
+				}
+		}
 	} // if TMP
 
 	if (strpos($buf, "ELEC") === 0) {
@@ -251,11 +251,11 @@ while ($msg = $redis->lpop('queue')) {     // while there is stuff in the queue
 				$message = date('Y-m-d H:i') . " Consume: Could not insert event " . mysql_error($remote) . "\n";
 				error_log($message, 3, $LOGFILE);
 				if (mysql_errno($remote) === 1062) {
-				        // it is a Duplicate Key message... delete the record anyway by setting $upd_done to true
-				        $upd_done = true;
-                                } 
+					// it is a Duplicate Key message... delete the record anyway by setting $upd_done to true
+					$upd_done = true;
+				}
 			} else {
-				$upd_done = true;	
+				$upd_done = true;
 			}
 			// now update the sensor timestamp and battery status
 			$updateq = "UPDATE Sensor SET tstamp='".$ts."', lobatt=0, cum_elec_pulse=cum_elec_pulse+".$pulse." WHERE id='".$id."'";
@@ -265,28 +265,28 @@ while ($msg = $redis->lpop('queue')) {     // while there is stuff in the queue
 				error_log($message, 3, $LOGFILE);
 			}
 			if ($publish) {
-			    if ($pubredis) {
-			            // update Redis using socketstream message
-			            $msg = new PubMessage;
-			            $msg->setParams($sensortype, $location, 'W', $power);
-			            if ($debug) echo "Redis publishing ".$sensortype." ".$location.": ".$power."\n";
-			            try {
-			                        // update Redis using Set
-                    			    $key = $location.":".$sensortype;
-                                    $redis->set ($key, $power); 
-                                    // $redis->publish('ss:event', json_encode($msg));
-                                    }
-                                    catch (Exception $e) {
-                                            $message = date('Y-m-d H:i') . " Consume: Cannot publish to Redis " . $e->getMessage() . "\n";
-                                            if ($debug) error_log($message, 3, $LOGFILE);
-                                    }
-                            }
-                            // and update Pachube / Cosm
-                            $data = '"' . $power . '"';
-                            if ($datastream != '') {
-                                    $result = $pachube->updateDataStream("csv", $feed, $datastream, $data);
-                            }
-                         }
+				if ($pubredis) {
+					// update Redis using socketstream message
+					$msg = new PubMessage;
+					$msg->setParams($sensortype, $location, 'W', $power);
+					if ($debug) echo "Redis publishing ".$sensortype." ".$location.": ".$power."\n";
+					try {
+						// update Redis using Set
+						$key = $location.":".$sensortype;
+						$redis->set ($key, $power);
+						// $redis->publish('ss:event', json_encode($msg));
+					}
+					catch (Exception $e) {
+							$message = date('Y-m-d H:i') . " Consume: Cannot publish to Redis " . $e->getMessage() . "\n";
+							if ($debug) error_log($message, 3, $LOGFILE);
+					}
+				}
+				// and update Pachube / Cosm
+				$data = '"' . $power . '"';
+				if ($datastream != '') {
+						$result = $pachube->updateDataStream("csv", $feed, $datastream, $data);
+				}
+			}
 		}
 	} // if ELEC
 
@@ -296,7 +296,7 @@ while ($msg = $redis->lpop('queue')) {     // while there is stuff in the queue
 		// field 0 = GNR
 		// field 1 = header
 		$roomid = $field[1] & 0x1F;		// node from the header
-		
+
 		$query = "SELECT id, sensortype, datastream, location FROM Sensor WHERE idroom='" . $roomid . "'";
 		if ($debug) echo "Query ", $query, "\n";
 		if (($result = mysql_query ($query, $remote))===false) {
@@ -316,7 +316,7 @@ while ($msg = $redis->lpop('queue')) {     // while there is stuff in the queue
 			$location = $Record['location'];
 			// get Pachube value
 			$datastream = $Record['datastream'];
-			
+
 			if (strstr($type, "RNR")) {
 				// RNR content
 				// it will be:
@@ -327,7 +327,7 @@ while ($msg = $redis->lpop('queue')) {     // while there is stuff in the queue
 				// 5 & 6 - signed integer value, temp
 				// 7 - lobat
 				// Room node. PIR is on if ACK is set
-				$pir = (($field[1] & 0x20) == 0x20); 							
+				$pir = (($field[1] & 0x20) == 0x20);
 				$light = round ($field[2] / 2.55, 0);		// lightness 0..100%
 				$moved = $field[3] & 0x01;
 				$humid = $field[4] & 0x7F;					// bottom 7 bits only
@@ -337,13 +337,13 @@ while ($msg = $redis->lpop('queue')) {     // while there is stuff in the queue
 				$out = unpack("sshort/", $binarydata);
 				$t1 = $out['short'];
 				// $t1 = $field[5] + $field[6] * 256;
-				$temp = $t1 / 10;		// divide by 10 
+				$temp = $t1 / 10;		// divide by 10
 				$lobat = $field[7] & 0x01;
 				if ($pir) {
 					// it is a PIR alert
 					$insertq = "INSERT INTO Motionlog SET pid='".$id."', tstamp='".$ts."', movement='1'";
 				} else {
-					// regular data update 	
+					// regular data update
 					$insertq = "INSERT INTO Roomlog SET pid='".$id."', tstamp='".$ts."', light='".$light."', humidity='".$humid."', temp='".$temp."'";
 
 				}
@@ -352,56 +352,56 @@ while ($msg = $redis->lpop('queue')) {     // while there is stuff in the queue
 					$message = date('Y-m-d H:i') . " Consume: Could not insert event " . mysql_error($remote) . "\n";
 					error_log($message, 3, $LOGFILE);
 					if (mysql_errno($remote) === 1062) {
-					    // it is a Duplicate Key message... delete the record anyway by setting $upd_done to true
-					    $upd_done = true;
-					} 
+						// it is a Duplicate Key message... delete the record anyway by setting $upd_done to true
+						$upd_done = true;
+					}
 				} else {
-					$upd_done = true;	
+					$upd_done = true;
 
 					// update Redis
-    			    // Motion records should be sent immediately, so
+					// Motion records should be sent immediately, so
 					// they are sent by rcvsend.php
 					if (!$pir && $publish && $pubredis) {
-					        // update Redis using socketstream message
-                                                $msg = new PubMessage;
-                                                if ($debug) echo "Redis publishing RNR ".$location."\n";
-                                                $msg->setParams('Light', $location, '%', $light);
-                                                try {
-                       			                        // update Redis using Set
-                       			                        $key = $location.":Light";
-                                                        $redis->set ($key, $light); 
-                                                        // $redis->set ($location.":Light", $light); 
-                                                        // $redis->publish('ss:event', json_encode($msg));
-                                                }
-                                                catch (Exception $e) {
-                                                        $message = date('Y-m-d H:i') . " Consume: Cannot publish to Redis " . $e->getMessage() . "\n";
-                                                        error_log($message, 3, $LOGFILE);
-                                                }
-                                                $msg->setParams('Humidity', $location, '%', $humid);
-                                                try {
-                       			                        // update Redis using Set
-                       			                        $key = $location.":Humidity";
-                                                        $redis->set ($key, $humid); 
-                                                        // $redis->set ($location.":Humidity", $humid); 
-                                                        // $redis->publish('ss:event', json_encode($msg));
-                                                }
-                                                catch (Exception $e) {
-                                                        $message = date('Y-m-d H:i') . " Consume: Cannot publish to Redis " . $e->getMessage() . "\n";
-                                                        error_log($message, 3, $LOGFILE);
-                                                }
-                                                $msg->setParams('Temperature', $location, '°C', $temp);
-                                                try {
-                       			                        // update Redis using Set
-                       			                        $key = $location.":Temperature";
-                                                        $redis->set ($key, $temp); 
-                                                        // $redis->set ($location.":Temperature", $temp); 
-                                                        // $redis->publish('ss:event', json_encode($msg));
-                                                }
-                                                catch (Exception $e) {
-                                                        $message = date('Y-m-d H:i') . " Consume: Cannot publish to Redis " . $e->getMessage() . "\n";
-                                                        error_log($message, 3, $LOGFILE);
-                                                }
- 					}
+						// update Redis using socketstream message
+						$msg = new PubMessage;
+						if ($debug) echo "Redis publishing RNR ".$location."\n";
+						$msg->setParams('Light', $location, '%', $light);
+						try {
+							// update Redis using Set
+							$key = $location.":Light";
+							$redis->set ($key, $light);
+							// $redis->set ($location.":Light", $light);
+							// $redis->publish('ss:event', json_encode($msg));
+						}
+						catch (Exception $e) {
+							$message = date('Y-m-d H:i') . " Consume: Cannot publish to Redis " . $e->getMessage() . "\n";
+							error_log($message, 3, $LOGFILE);
+						}
+						$msg->setParams('Humidity', $location, '%', $humid);
+						try {
+							// update Redis using Set
+							$key = $location.":Humidity";
+							$redis->set ($key, $humid);
+							// $redis->set ($location.":Humidity", $humid);
+							// $redis->publish('ss:event', json_encode($msg));
+						}
+						catch (Exception $e) {
+							$message = date('Y-m-d H:i') . " Consume: Cannot publish to Redis " . $e->getMessage() . "\n";
+							error_log($message, 3, $LOGFILE);
+						}
+						$msg->setParams('Temperature', $location, '°C', $temp);
+						try {
+							// update Redis using Set
+							$key = $location.":Temperature";
+							$redis->set ($key, $temp);
+							// $redis->set ($location.":Temperature", $temp);
+							// $redis->publish('ss:event', json_encode($msg));
+						}
+						catch (Exception $e) {
+							$message = date('Y-m-d H:i') . " Consume: Cannot publish to Redis " . $e->getMessage() . "\n";
+							error_log($message, 3, $LOGFILE);
+						}
+					}
 
 					// and update Pachube / Cosm
 					if (!$pir && $publish && ($datastream != '')) {
@@ -412,9 +412,8 @@ while ($msg = $redis->lpop('queue')) {     // while there is stuff in the queue
 						$result = $pachube->updateDataStream("csv", $feed, $datastream.'_2' , $data);
 						$data = '"' . $temp . '"';
 						$result = $pachube->updateDataStream("csv", $feed, $datastream.'_3' , $data);
-						
 					}
-					
+
 				}
 				// now update the sensor timestamp and battery status
 				$updateq = "UPDATE Sensor SET tstamp='".$ts."', lobatt='".$lobat."' WHERE id='".$id."'";
@@ -426,7 +425,7 @@ while ($msg = $redis->lpop('queue')) {     // while there is stuff in the queue
 			} // if RNR
 		} // if numrows
 	} // if GNR
-	
+
 } // while
 
 mysql_close ($remote);

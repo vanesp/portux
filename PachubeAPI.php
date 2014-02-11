@@ -17,17 +17,17 @@ class PachubeAPI
 	private $Api;
 	private $Pachube;
 	private $Pachube_headers;
-	
+
 	/**
 	 * Constructor
 	 */
-	function __construct($api) 
+	function __construct($api)
 	{
 		$this->Api = $api;
 		$this->Pachube = "api.xively.com/v2";
-		$this->Pachube_headers  = array("X-ApiKey: $this->Api");
+		$this->Pachube_headers	= array("X-ApiKey: $this->Api");
 	}
-	
+
 	/**
 	 * Get list of feeds
 	 * @param string format of output ("json", "xml", "csv")
@@ -56,7 +56,7 @@ class PachubeAPI
 		if($units) $url .= "units=" . $units . "&";
 		if($status) $url .= "status=" . $status . "&";
 		if($order) $url .= "order=" . $order . "&";
-		if($location) 
+		if($location)
 		{
 			$url .= "lat=" . $location['lat'] . "&" . "lon=" . $location['lon'] . "&";
 			if(isset($location['distance'])) $url .= "distance=" . $location['distance'] . "&";
@@ -64,7 +64,7 @@ class PachubeAPI
 		}
 		return $this->_getRequest($url);
 	}
-	
+
 	/**
 	 * Get feed information
 	 * @param string format of output ("json", "xml", "csv")
@@ -89,7 +89,7 @@ class PachubeAPI
 		}
 		return $this->_getRequest($url);
 	}
-	
+
 	/**
 	 * Update feed with data
 	 * @param int feed ID
@@ -102,7 +102,7 @@ class PachubeAPI
 		$url = "https://$this->Pachube/feeds/$feed";
 		return $this->_putRequest($url, $data);
 	}
-	
+
 	/**
 	 * Delete feed from Pachube
 	 * @param int feed ID
@@ -113,7 +113,7 @@ class PachubeAPI
 		$url = "https://$this->Pachube/feeds/$feed";
 		return $this->_deleteRequest($url);
 	}
-	
+
 	/**
 	 * Get feed information
 	 * @param int feed ID
@@ -126,7 +126,7 @@ class PachubeAPI
 		$data = json_decode($this->_getRequest($url));
 		return $data->datastreams;
 	}
-	
+
 	/**
 	 * Create datastream
 	 * @param int feed ID
@@ -140,7 +140,7 @@ class PachubeAPI
 		if($format && ($format == "json" || $format == "csv" || $format == "xml")) $url .= ".". $format;
 		return $this->_postRequest($url, $data);
 	}
-	
+
 	/**
 	 * Get datastream
 	 * @param string format of output ("json", "xml", "csv")
@@ -154,13 +154,13 @@ class PachubeAPI
 		$url = "https://$this->Pachube/feeds/$feed/datastreams/$datastream";
 		return $this->_getRequest($url);
 	}
-	
+
 	/**
 	 * Update datastream
 	 * @param string format of output ("json", "xml", "csv")
 	 * @param int feed ID
 	 * @param string datastream ID
-     * @param string data
+	 * @param string data
 	 * @return http response headers
 	 */
 	public function updateDatastream($format=false, $feed, $datastream, $data)
@@ -169,7 +169,7 @@ class PachubeAPI
 		$url = "https://$this->Pachube/feeds/$feed/datastreams/$datastream";
 		return $this->_putRequest($url, $data);
 	}
-	
+
 	/**
 	 * Delete datastream
 	 * @param int feed ID
@@ -181,12 +181,12 @@ class PachubeAPI
 		$url = "https://$this->Pachube/feeds/$feed/datastreams/$datastream";
 		return $this->_deleteRequest($url);
 	}
-	
+
 	// ToDo: DataPoints
 	// ToDo: Triggers
 	// ToDo: Users: List, Create, Update, Delete
 	// ToDo: API keys
-	
+
 	/**
 	 * Get user information
 	 * @param string format of output ("json", "xml")
@@ -199,7 +199,7 @@ class PachubeAPI
 		$url = "https://$this->Pachube/users/$user";
 		return $this->_getRequest($url);
 	}
-	
+
 	/**
 	 * Get feed history
 	 * @param string format of output ("json", "xml", "csv")
@@ -228,10 +228,10 @@ class PachubeAPI
 		if($find_previous) $url .= "find_previous=" . $find_previous . "&";
 		if($interval_type) $url .= "interval_type=" . $interval_type . "&";
 		if($interval) $url .= "interval=" . $interval;
-		
+
 		return $this->_getRequest($url);
 	}
-	
+
 	/**
 	 * Get datastream history
 	 * @param string format of output ("json", "xml", "csv")
@@ -261,31 +261,31 @@ class PachubeAPI
 		if($find_previous) $url .= "find_previous=" . $find_previous . "&";
 		if($interval_type) $url .= "interval_type=" . $interval_type . "&";
 		if($interval) $url .= "interval=" . $interval;
-		
+
 		return $this->_getRequest($url);
 	}
-	
+
 	/**
 	 * Create GET request to Pachube (wrapper)
 	 * @param string url
 	 * @return http code response
 	 */
 	private function _getRequest($url)
-	{		
+	{
 		if(function_exists('curl_init'))
 		{
 			return $this->_curl($url, true);
 		}
 		elseif(function_exists('file_get_contents') && ini_get('allow_url_fopen'))
 		{
-			return $this->_get($url);		
+			return $this->_get($url);
 		}
 		else
 		{
 			return 500;
 		}
 	}
-	
+
 	/**
 	 * Create POST request to Pachube (wrapper)
 	 * @param string url
@@ -293,14 +293,14 @@ class PachubeAPI
 	 * @return http code response
 	 */
 	private function _postRequest($url, $data)
-	{		
+	{
 		if(function_exists('curl_init'))
 		{
 			return $this->_curl($url, true, true, $data);
 		}
 		elseif(function_exists('file_post_contents') && ini_get('allow_url_fopen'))
 		{
-			return $this->_post($url, $data);		
+			return $this->_post($url, $data);
 		}
 		else
 		{
@@ -315,7 +315,7 @@ class PachubeAPI
 	 * @return http code response
 	 */
 	private function _putRequest($url, $data)
-	{	
+	{
 		if(function_exists('curl_init'))
 		{
 			$putData = tmpfile();
@@ -345,7 +345,7 @@ class PachubeAPI
 			return 500;
 		}
 	}
-	
+
 	/**
 	 * Create DELETE request to Pachube
 	 * @param string url
@@ -363,7 +363,7 @@ class PachubeAPI
 		curl_close($ch);
 		return $headers['http_code'];
 	}
-	
+
 	/**
 	 * GET requests to Pachube
 	 * @param string url
@@ -378,7 +378,7 @@ class PachubeAPI
 		// Open the file using the HTTP headers set above
 		return file_get_contents($url, false, $context);
 	}
-	
+
 	/**
 	 * POST requests to Pachube
 	 * @param string url
@@ -387,15 +387,15 @@ class PachubeAPI
 	 */
 	private function _post($url, $data)
 	{
-		$postfields = http_build_query($data);  
-		$opts = array('http' =>  
-		   array(  
-		      'method'  => 'POST',  
-		      'header'  => 'Content-type: application/x-www-form-urlencoded',  
-		      'content' => $postfields,  
-		   )  
-		);  
-		$context  = stream_context_create($opts);  
+		$postfields = http_build_query($data);
+		$opts = array('http' =>
+		   array(
+			  'method'	=> 'POST',
+			  'header'	=> 'Content-type: application/x-www-form-urlencoded',
+			  'content' => $postfields,
+		   )
+		);
+		$context  = stream_context_create($opts);
 		return file_get_contents($url, false, $context);
 	}
 
@@ -407,7 +407,7 @@ class PachubeAPI
 	 * @return response
 	 */
 	private function _put($url,$data)
-	{	
+	{
 		// Create a stream
 		$opts['http']['method'] = "PUT";
 		$opts['http']['header'] = "X-ApiKey: ".$this->Api."\r\n";
@@ -438,7 +438,7 @@ class PachubeAPI
 				curl_setopt($ch, CURLOPT_POST, 1);
 				if($post_data) curl_setopt($ch, CURLOPT_POSTFIELDS, $post_data);
 			}
-			
+
 			$data = curl_exec($ch);
 			curl_close($ch);
 			return $data;
@@ -448,7 +448,7 @@ class PachubeAPI
 			return false;
 		}
 	}
-	
+
 	/**
 	 * Print debug status of error
 	 * @param int status code
@@ -456,9 +456,9 @@ class PachubeAPI
 	public function _debugStatus($status_code)
 	{
 		switch ($status_code)
-		{			
+		{
 			case 200:
-				$msg = "Pachube feed successfully updated";	
+				$msg = "Pachube feed successfully updated";
 				break;
 			case 401:
 				$msg = "Pachube API key was incorrect";
@@ -477,12 +477,12 @@ class PachubeAPI
 				break;
 			case 500:
 				$msg = "cURL library not installed or some other internal error occured";
-				break;	
+				break;
 			default:
 				$msg = "Status code not recognised: ".$status_code;
 				break;
 		}
-		echo $msg;		
+		echo $msg;
 	}
 }
 ?>
