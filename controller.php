@@ -65,7 +65,7 @@
 
 // Global data structure
 $debug = false;
-$showstatus = false;		// do we send status message to node.js app?
+$showstatus = false;		// do we send status message via Redis ?
 
 // Make it possible to test in source directory
 // This is for PEAR developers only
@@ -197,7 +197,7 @@ function sendCommand ($key, $state) {
 		$channel = 'portux.status.'.$location;
 		$value = $switches[$key]['state'];
 		$sensortype = 'Status';
-		$quantity = $switches[$key]['strategy'].' '.date('Y-m-d H:i:s', $switches[$key]['tstamp']);
+		$quantity = $switches[$key]['strategy'].' '.date('Y-m-d H:i:s', $switches[$key]['nextevent']);
 		// update Redis using socketstream message
 		$msg = new PubMessage;
 		$msg->setParams($sensortype, $location, $quantity, $value);
@@ -218,7 +218,7 @@ function handleIncoming($str) {
 	$msg = str_replace (', ',"\n", $str);
 	// and parse it to an associative array with fields Direction, Source, and Event
 	$cmd = parse_ini_string ($msg);
-	// if ($debug) System_Daemon::info("handleIncoming ".$msg);
+	if ($debug) System_Daemon::info("handleIncoming ".$msg);
 
 	// we only take action if it is an Input event
 	// note - this will yield a Warning if there is no Direction field in the line
@@ -254,7 +254,7 @@ function handleIncoming($str) {
 						}
 						// if it is forced on, do not switch off till the normal off time
 						$switch['time_off'] = '00:30';	// switch off at 30 past midnight
-						$switch['tstamp'] = strtotime("tomorrow ".$switch['time_off']);		// set the time
+						$switch['nextevent'] = strtotime("tomorrow ".$switch['time_off']);		// set the time
 						sendCommand ($key,'On');		// make sure it is on
 					}
 					if ($newstate == 'FORCEOFF') {
@@ -266,7 +266,7 @@ function handleIncoming($str) {
 						}
 						// if it is forced off, then we leave it off till the next event time
 						$switch['time_on'] = $sunset;  // switch on at sunset tomorrow
-						$switch['tstamp'] = strtotime("tomorrow ".$switch['time_on']);	   // set the time
+						$switch['nextevent'] = strtotime("tomorrow ".$switch['time_on']);	   // set the time
 						sendCommand ($key,'Off');		 // make sure it is off
 				   }
 				   if ($debug) System_Daemon::info("handleIncoming changed ".print_r($switch, true));
@@ -305,7 +305,7 @@ function handleMotion($location) {
 			   switch ($switch['state']) {
 					case 'ON':
 						// if the light is on, keep it on, and extend the period
-						$switch['tstamp'] = time() + $switch['duration']*60;
+						$switch['nextevent'] = time() + $switch['duration']*60;
 						// and make sure it is really on
 						if ($switch['olddim'] == 0 ) {
 							sendCommand ($key,'On');
@@ -316,7 +316,7 @@ function handleMotion($location) {
 						if ($in_the_dark || $light <= LIGHTLEVEL) {
 							// switch on that light
 							$switch['state'] = 'ON';
-							$switch['tstamp'] = time() + $switch['duration']*60;
+							$switch['nextevent'] = time() + $switch['duration']*60;
 							sendCommand ($key,'On');
 						}
 						break;
@@ -327,7 +327,7 @@ function handleMotion($location) {
 					default:
 						// switch off that light and get to known state
 						$switch['state'] = 'OFF';
-						$switch['tstamp'] = time();
+						$switch['nextevent'] = time();
 						sendCommand ($key,'Off');
 				} // switch
 			} // strategy
@@ -361,7 +361,7 @@ function resetAll() {
 			case 'time':
 				// nothing to do, gets dealt with in the first handleTick program,
 				// add two minutes before next action
-				$switch['tstamp'] = time() + 2 * 60;
+				$switch['nextevent'] = time() + 2 * 60;
 				break;
 			// the following are self starting
 			case 'simulate':
@@ -369,7 +369,7 @@ function resetAll() {
 			case 'light':
 			case 'event':
 			default:
-				$switch['tstamp'] = time();
+				$switch['nextevent'] = time();
 		}
 
 	}
@@ -427,15 +427,15 @@ function handleTick() {
 		switch ($switch['strategy']) {
 			case 'motion':
 				// check if timed-out, and on, then go off
-				 if (!$forced && $active && ($switch['tstamp'] <= time())) {
+				 if (!$forced && $active && ($switch['nextevent'] <= time())) {
 					$switch['state'] = 'OFF';
-					$switch['tstamp'] = time();
+					$switch['nextevent'] = time();
 					sendCommand ($key,'Off');
 					$changed = true;
 				} elseif (!isset($switch['state'])) {
 					// switch off that light and get to known state
 					$switch['state'] = 'OFF';
-					$switch['tstamp'] = time();
+					$switch['nextevent'] = time();
 					sendCommand ($key,'Off');
 					$changed = true;
 				}
@@ -456,7 +456,7 @@ function handleTick() {
 				}
 				// so drop through to the next set, where also the forced items get reset
 			case 'time':
-				if (time() > $switch['tstamp']) {
+				if (time() > $switch['nextevent']) {
 					// time for action
 					if (!$active) {
 						$switch['state'] = 'ON';
@@ -480,11 +480,11 @@ function handleTick() {
 				if ($t >= $start_t && $t < $finish_t) {
 					// switch is meant to be on, set the first off time as the next action
 					$switch['state'] = 'ON';
-					$switch['tstamp'] = $finish_t;
+					$switch['nextevent'] = $finish_t;
 				} else {
 					// not in the time range, switch light back off and schedule on time
 					$switch['state'] = 'OFF';
-					$switch['tstamp'] = $start_t;
+					$switch['nextevent'] = $start_t;
 				}
 				break;
 			case 'simulate':
@@ -498,12 +498,12 @@ function handleTick() {
 						$off = strtotime("today ".$switch['time_on']." + ".$switch['duration']." min");
 						$switch['time_on'] = date ("H:i", $on);
 						$switch['time_off'] = date ("H:i", $off);
-						$switch['tstamp'] = $on;	 // set the next event time
+						$switch['nextevent'] = $on;	 // set the next event time
 						$switch['state'] = 'SCHED';
 						$changed = true;
 						break;
 					case 'ON':
-						if ((time() >= $switch['tstamp']) && $active) {
+						if ((time() >= $switch['nextevent']) && $active) {
 							// it is time to switch off
 							$switch['state'] = 'OFF';
 							sendCommand ($key,'Off');
@@ -511,10 +511,10 @@ function handleTick() {
 						}
 						break;
 					case 'SCHED':
-						if ((time() >= $switch['tstamp']) && !$active) {
+						if ((time() >= $switch['nextevent']) && !$active) {
 							// we've scheduled, and it's time to switch on
 							$switch['state'] = 'ON';
-							$switch['tstamp'] = strtotime($switch['time_off']);		// set the next event time
+							$switch['nextevent'] = strtotime($switch['time_off']);		// set the next event time
 							sendCommand ($key,'On');
 							$changed = true;
 						}
@@ -530,14 +530,14 @@ function handleTick() {
 				if (($light <= LIGHTLEVEL) && !$active) {
 					// we're in the dark, and it is earlier than the time to switch off
 					$switch['state'] = 'ON';
-					$switch['tstamp'] = time();		// set the time
+					$switch['nextevent'] = time();		// set the time
 					sendCommand ($key,'On');
 					$changed = true;
 				}
 				if (($light > LIGHTOFF) && $active) {
 					// it is time to switch off
 					$switch['state'] = 'OFF';
-					$switch['tstamp'] = time();		// set the time
+					$switch['nextevent'] = time();		// set the time
 					sendCommand ($key,'Off');
 					$changed = true;
 				}
@@ -549,6 +549,8 @@ function handleTick() {
 		if ($debug && $changed) System_Daemon::info("handleTick changed ".print_r($switch, true));
 
 	}// foreach
+	// and then synchronize that database
+	SyncDB();
 }
 
 
@@ -566,7 +568,7 @@ function Initialize() {
 
 	// retrieve all switch definitions
 	// add fake field count to the switches table... for ist-soll comparison
-	$query = "SELECT Switch.tstamp, description, idroom, location, strategy, command, kaku, time_on, time_off, state, duration, duration as count, olddim FROM Switch,Sensor WHERE Sensor.id = Switch.sensor_id";
+	$query = "SELECT Switch.id as sid, Switch.tstamp, nextevent, description, idroom, location, strategy, command, kaku, time_on, time_off, state, duration, duration as count, olddim FROM Switch,Sensor WHERE Sensor.id = Switch.sensor_id ORDER BY Switch.id";
 	if (($remres = mysql_query ($query, $remote))===false) {
 		$message = date('Y-m-d H:i') . " Controller: Could not read Contao database " . mysql_error($remote);
 		System_Daemon::notice($message);
@@ -582,6 +584,86 @@ function Initialize() {
 	// database no longer needed
 	mysql_close ($remote);
 }
+
+// Synchronize database
+function SyncDB() {
+	global $switches, $debug;
+
+	if ($debug) System_Daemon::info("In SyncDB");
+
+	// Open the database
+	$remote = open_remote_db();
+	if (!$remote) {
+		$message = date('Y-m-d H:i') . " Controller: Cannot open remote database for sync " . mysql_error($remote);
+		System_Daemon::notice($message);
+		// but we do not stop the daemon, it's not critical right now
+		return (1);
+	}
+
+	// retrieve only parts of the switch details
+	// add fake field count to the switches table... for ist-soll comparison
+	$query = "SELECT Switch.id as sid, Switch.tstamp, description, idroom, location, strategy, command, kaku, time_on, time_off, state, duration, duration as count, olddim FROM Switch,Sensor WHERE Sensor.id = Switch.sensor_id ORDER BY Switch.id";
+	if (($remres = mysql_query ($query, $remote))===false) {
+		$message = date('Y-m-d H:i') . " Controller: Could not read Contao database for sync " . mysql_error($remote);
+		System_Daemon::notice($message);
+	}
+
+	// and create the $update array for fixing the $switches array with these fields
+	$numrows = mysql_num_rows($remres);
+	while ($numrows > 0) {
+		$numrows--;
+		$updates[] = mysql_fetch_array($remres, MYSQL_ASSOC);
+	}
+
+	// loop through $updates to update $switches but only for those records where the $updates.nextevent is bigger...
+	reset ($updates);
+	foreach ($updates as $updkey => &$upd) {
+		reset($switches);
+		$found = false;
+		foreach ($switches as $key => &$switch) {
+			// if the id's are the same
+			if ($switch['sid'] == $upd['sid']) {
+				$found = true;
+				// keys are the same... so we have the record
+				if ($upd['tstamp'] > $switch['tstamp']) {
+					// update the switch values
+    				if ($debug) System_Daemon::info("In SyncDB updating ".$switch['sid']);
+      				$switch['tstamp'] = $upd['tstamp'];
+					$switch['description'] = $upd['description'];
+					$switch['location'] = $upd['location'];
+					$switch['strategy'] = $upd['strategy'];
+					$switch['command'] = $upd['command'];
+					$switch['kaku'] = $upd['kaku'];
+					$switch['time_on'] = $upd['time_on'];
+					$switch['time_off'] = $upd['time_off'];
+					$switch['duration'] = $upd['duration'];
+					$switch['olddim'] = $upd['olddim'];
+				}
+			}
+		} // foreach of $switches
+        // if we haven't found the record, it is new... so we'll add it to the $switches in it's entirety
+        if (!$found) {
+            $switches[] = $updates[$updkey];
+        }
+
+	} // foreach of $updates
+
+	// loop through the switches to update the database
+	reset($switches);
+	foreach ($switches as $key => &$switch) {
+            // update the database record
+            $query = "UPDATE Switch SET state='".$switch['state']."', nextevent='".$switch['nextevent']."',time_on='".$switch['time_on']."', time_off='".$switch['time_off']."' WHERE id=".$switch['sid'];
+            if ($debug) System_Daemon::info("Updating {$query}");
+            if (($remres = mysql_query ($query, $remote))===false) {
+                $message = date('Y-m-d H:i') . " Controller: Could not update Contao database for sync " . mysql_error($remote);
+                System_Daemon::notice($message);
+            }
+    }
+
+	// database no longer needed
+	mysql_close ($remote);
+}
+
 
 
 // MAIN Code
@@ -682,13 +764,13 @@ if ($pubredis) {
 				break;
 
 			case 'message':
-				// if ($debug) System_Daemon::info("Received {$message->payload}");
+				if ($debug) System_Daemon::info("Received {$message->payload}");
 				// determine the kind of message
 				$obj = json_decode ($message->payload);
 				// if e is "newMessage" it is stuff from the Nodo
 				// if e is portux, then we deal with it below
 				if ($obj->e == 'newMessage') {
-					handleIncoming ($obj->p[0]);
+					handleIncoming ($obj->p);
 				} elseif ($obj->e == 'portux') {
 					// deal with the different kinds of message, take action on the
 					// switches in the array switch
