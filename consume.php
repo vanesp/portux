@@ -44,7 +44,6 @@ include('access.php');
 $LOGFILE = "sensor.log";		// log history of actions
 $LEN = 128;						// records are max 128 bytes
 
-
 // include Redis pub sub functionality
 include('redis.php');
 
@@ -66,8 +65,8 @@ $debug = false;
 $publish = true;	   // publish data? (Pachube/Redis)
 $pubredis = true;	   // publish redis?
 
-// don't timeout!
-set_time_limit(0);
+// do timeout if not done within 60 seconds (as the next process will be invoked)
+set_time_limit(59);
 
 // function to open the database
 function open_remote_db () {
@@ -79,6 +78,7 @@ function open_remote_db () {
 	if (!$remote) {
 		$message = date('Y-m-d H:i') . " Consume: Remote database connection failed " . mysql_error($remote) . "\n";
 		error_log($message, 3, $LOGFILE);
+		return false;
 	}
 
 	// See if we can open the database
@@ -100,7 +100,7 @@ if (!$remote) {
 	exit (1);
 }
 
-// open teh redis store... it is crucial now
+// open the redis store... it is crucial now
 if (!$redis->isConnected()) {
 	try {
 		$redis->connect();
@@ -112,7 +112,6 @@ if (!$redis->isConnected()) {
 		exit(1);	// as there is no point in continuing
 	}
 }
-
 
 // how many items are there in our queue
 $numrows = $redis->llen('queue');
@@ -427,7 +426,6 @@ while ($msg = $redis->lpop('queue')) {	   // while there is stuff in the queue
 	} // if GNR
 
 } // while
-
 mysql_close ($remote);
 
 ?>

@@ -13,10 +13,19 @@
 //
 // </copyright>
 // <author>Peter van Es</author>
-// <version>1.1</version>
+// <version>1.2</version>
 // <email>vanesp@escurio.com</email>
-// <date>2014-01-02</date>
+// <date>2014-02-19</date>
 // <summary>controller received messages from pub/sub redis and acts upon them</summary>
+
+// version 1.2
+
+// Add override methods for manual control (now that the Raspberry Pi works more reliably
+// in controlling the nodo)
+
+// Add method to retrieve new commands from the database on bali.local occasionally
+// Add method to store status changes back to the database on bali.local occasionally
+
 
 // version 1.1
 
@@ -237,21 +246,25 @@ function handleIncoming($str) {
 			foreach ($switches as $key => &$switch) {
 				if ($switch['kaku'] == $ident) {
 					if ($newstate == 'FORCEON') {
+						// pressing 2x toggles the force status
 						if ($switch['state'] == 'FORCEON') {
 							$switch['state'] = 'ON';
 						} else {
 							$switch['state'] = 'FORCEON';
 						}
+						// if it is forced on, do not switch off till the normal off time
 						$switch['time_off'] = '00:30';	// switch off at 30 past midnight
 						$switch['tstamp'] = strtotime("tomorrow ".$switch['time_off']);		// set the time
 						sendCommand ($key,'On');		// make sure it is on
 					}
 					if ($newstate == 'FORCEOFF') {
+						// pressing 2x toggles the force status
 						if ($switch['state'] == 'FORCEOFF') {
 							$switch['state'] = 'OFF';
 						} else {
 							$switch['state'] = 'FORCEOFF';
 						}
+						// if it is forced off, then we leave it off till the next event time
 						$switch['time_on'] = $sunset;  // switch on at sunset tomorrow
 						$switch['tstamp'] = strtotime("tomorrow ".$switch['time_on']);	   // set the time
 						sendCommand ($key,'Off');		 // make sure it is off
@@ -298,10 +311,6 @@ function handleMotion($location) {
 							sendCommand ($key,'On');
 						}
 						break;
-					case 'FORCEON':
-					case 'FORCEOFF':
-						// do nothing with motion
-						break;
 					case 'OFF':
 						// is it after sunset, before sunrise ?
 						if ($in_the_dark || $light <= LIGHTLEVEL) {
@@ -310,6 +319,10 @@ function handleMotion($location) {
 							$switch['tstamp'] = time() + $switch['duration']*60;
 							sendCommand ($key,'On');
 						}
+						break;
+					case 'FORCEON':
+					case 'FORCEOFF':
+						// do nothing with motion
 						break;
 					default:
 						// switch off that light and get to known state
@@ -386,6 +399,7 @@ function handleTick() {
 		}
 
 		// For Ist-Soll comparison, deduct one from the counter, and verify that state
+		// As a tick comes in every minute, this runs every 5 mins
 		$switch['count']--;
 		if ($switch['count'] == 0) {
 			// reset the count
@@ -427,15 +441,20 @@ function handleTick() {
 				}
 				break;
 			case 'sun':
-				$switch['time_off'] = $sunrise;	 // switch off at sunrise
-				$switch['time_on'] = $sunset;
+				// don't do this if forced
+				if (!$forced) {
+					$switch['time_off'] = $sunrise;	 // switch off at sunrise
+					$switch['time_on'] = $sunset;
+				}
 				// processing is the same for the next two sets...
 			case 'evening':
-				// evening only... even if forced, so automatic reset
-				// processing is identical to time, except that the time-on is set to sunset...
-				// time off is in the record
-				$switch['time_on'] = $sunset;
-				// so drop through to the next set
+				// evening only... not if forced
+				if (!$forced) {
+					// processing is identical to time, except that the time-on is set to sunset...
+					// time off is in the record
+					$switch['time_on'] = $sunset;
+				}
+				// so drop through to the next set, where also the forced items get reset
 			case 'time':
 				if (time() > $switch['tstamp']) {
 					// time for action
@@ -507,6 +526,7 @@ function handleTick() {
 			case 'light':
 				// get the most recent light value
 				$light = intval($publish->get ($switch['location'].':Light'));
+				// check if the light is forced, then don't do anything...
 				if (($light <= LIGHTLEVEL) && !$active) {
 					// we're in the dark, and it is earlier than the time to switch off
 					$switch['state'] = 'ON';

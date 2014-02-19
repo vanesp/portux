@@ -7,7 +7,10 @@ require 'vendor/autoload.php';
 Predis\Autoloader::register();
 
 // Open Redis, catch exceptions
-// since the dns does not always work, fix the ip address for rpi1.local
+// but first wait a while before trying 
+sleep (30);
+
+// since the dns does not always work, fix the ip address for localhost
 try {
     $redis = new Predis\Client(array(
         'scheme' => 'tcp',
