@@ -171,7 +171,7 @@ function sendCommand ($key, $state) {
 	$location = $switches[$key]['description']; // or 2 or 3, or name of switch
 
 	$value = false;	 // or false for off
-	if ($state == 'On') $value = true;
+	if ($state === 'On') $value = true;
 	$quantity = $switches[$key]['command'];
 
 	// set the count to 5 for the Ist-Soll function
@@ -222,32 +222,35 @@ function handleIncoming($str) {
 
 	// we only take action if it is an Input event
 	// note - this will yield a Warning if there is no Direction field in the line
-	if ($cmd['Direction'] == 'Input') {
+	if ($cmd['Direction'] === 'Input') {
 		// parse the Event, first check for on or off
+		$newstate = 'UNDEFINED';
 		if (strripos ($cmd['Event'],',On') !== false) $newstate = 'FORCEON';
 		if (strripos ($cmd['Event'],',Off') !== false) $newstate = 'FORCEOFF';
 		if (($i = strripos ($cmd['Event'],'NewKAKU')) !== false) {
-			// it's a new one... find the string
+			// it's a new one... find the string before the comma
 			$end = strripos ($cmd['Event'],',');
-			$begin = $i + 7; // NewKaku is 7 long
+			$begin = $i + 8; // NewKaku is 7 long + 1 space
 			$len = $end - $begin;	// length of the identifier
 			$ident = substr ($cmd['Event'], $begin, $len);
 		}
 		if (($i = strripos ($cmd['Event'],'KAKU')) !== false) {
-			// it's a new one... find the string
+			// it's a new one... find the string before the comma
 			$end = strripos ($cmd['Event'],',');
-			$begin = $i + 4; // KAKU is 7 long
+			$begin = $i + 5; // KAKU is 4 long + 1 space
 			$len = $end - $begin;	// length of the identifier
 			$ident = substr ($cmd['Event'], $begin, $len);
 		}
+		if ($debug) System_Daemon::info("handleIncoming identifier ".$ident);
+
 		if (isset($ident)) {
 			// loop through switches to find the one we have
 			reset ($switches);
 			foreach ($switches as $key => &$switch) {
-				if ($switch['kaku'] == $ident) {
-					if ($newstate == 'FORCEON') {
+				if ($switch['kaku'] === $ident) {
+					if ($newstate === 'FORCEON') {
 						// pressing 2x toggles the force status
-						if ($switch['state'] == 'FORCEON') {
+						if ($switch['state'] === 'FORCEON') {
 							$switch['state'] = 'ON';
 						} else {
 							$switch['state'] = 'FORCEON';
@@ -257,9 +260,9 @@ function handleIncoming($str) {
 						$switch['nextevent'] = strtotime("tomorrow ".$switch['time_off']);		// set the time
 						sendCommand ($key,'On');		// make sure it is on
 					}
-					if ($newstate == 'FORCEOFF') {
+					if ($newstate === 'FORCEOFF') {
 						// pressing 2x toggles the force status
-						if ($switch['state'] == 'FORCEOFF') {
+						if ($switch['state'] === 'FORCEOFF') {
 							$switch['state'] = 'OFF';
 						} else {
 							$switch['state'] = 'FORCEOFF';
@@ -274,7 +277,7 @@ function handleIncoming($str) {
 				} // not the right switch
 			}
 		}
-	} elseif ($cmd['Direction'] == 'Internal') {
+	} elseif ($cmd['Direction'] === 'Internal') {
 		// handle clock events
 		if (($i = strripos ($cmd['Event'],'ClockDayLight')) !== false) {
 			// it's a new one... find the string
@@ -297,7 +300,7 @@ function handleMotion($location) {
 			// we've got the switch that corresponds to this location, Motion was detected
 
 			// only take action if the strategy is motion, and the light is not forced on or off
-			if ($switch['strategy'] == 'motion') {
+			if ($switch['strategy'] === 'motion') {
 			   if ($debug) System_Daemon::info("handleMotion checking state for item ".print_r($switch, true));
 			   // get the most recent light value
 			   $light = intval($publish->get ($switch['location'].':Light'));
