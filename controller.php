@@ -13,10 +13,14 @@
 //
 // </copyright>
 // <author>Peter van Es</author>
-// <version>1.2</version>
+// <version>1.3</version>
 // <email>vanesp@escurio.com</email>
-// <date>2014-02-19</date>
+// <date>2014-03-08</date>
 // <summary>controller received messages from pub/sub redis and acts upon them</summary>
+
+// version 1.3
+
+// Changed Forced handling so that a Forced switch becomes unforced after a while...
 
 // version 1.2
 
@@ -210,7 +214,7 @@ function sendCommand ($key, $state) {
 
 // function to handle an incoming message and act accordingly
 function handleIncoming($str) {
-	global $switches, $debug, $sunrise, $sunset, $timestate;
+	global $switches, $debug, $sunrise, $sunset, $sunrise_t, $sunset_t, $timestate;
 
 	// remove non-printable characters
 	$str = preg_replace( '/[^[:print:]]/', '',$str);
@@ -257,7 +261,11 @@ function handleIncoming($str) {
 						}
 						// if it is forced on, do not switch off till the normal off time
 						$switch['time_off'] = '00:30';	// switch off at 30 past midnight
-						$switch['nextevent'] = strtotime("tomorrow ".$switch['time_off']);		// set the time
+						if (time() > strtotime("today ".$switch['time_off'])) {
+						    $switch['nextevent'] = strtotime("tomorrow ".$switch['time_off']);		// set the time
+						} else {
+						    $switch['nextevent'] = strtotime("today ".$switch['time_off']);		// set the time
+						}
 						sendCommand ($key,'On');		// make sure it is on
 					}
 					if ($newstate === 'FORCEOFF') {
@@ -269,11 +277,14 @@ function handleIncoming($str) {
 						}
 						// if it is forced off, then we leave it off till the next event time
 						$switch['time_on'] = $sunset;  // switch on at sunset tomorrow
-						$switch['nextevent'] = strtotime("tomorrow ".$switch['time_on']);	   // set the time
+						if (time() > $sunset_t) {
+						    $switch['nextevent'] = strtotime("tomorrow ".$switch['time_on']);	   // set the time
+						} else {
+						    $switch['nextevent'] = $sunset_t;	   // set the time
+						}
 						sendCommand ($key,'Off');		 // make sure it is off
 				   }
 				   if ($debug) System_Daemon::info("handleIncoming changed ".print_r($switch, true));
-
 				} // not the right switch
 			}
 		}
@@ -286,9 +297,19 @@ function handleIncoming($str) {
 			$len = $end - $begin;	// length of the identifier
 			$timestate = intval(substr ($cmd['Event'], $begin, $len));
 			if ($debug) System_Daemon::info("Timestate changed to ".$timestate);
-		}
-	}
- }
+			// To be added in future: and toggle FORCE off...
+			reset ($switches);
+			foreach ($switches as $key => &$switch) {
+                if ($switch['state'] === 'FORCEON') {
+                    $switch['state'] = 'ON';
+                }
+                if ($switch['state'] === 'FORCEOFF') {
+                    $switch['state'] = 'OFF';
+                }
+			} // foreach
+		} // if ClockDayLight
+	} // elseif
+}
 
 // function to handle a motion event on a location
 function handleMotion($location) {
@@ -720,7 +741,7 @@ $sunset = date_sunset (time(), SUNFUNCS_RET_STRING, $latitude, $longitude, $zeni
 
 $timestate = 0;
 if (time() > $sunrise_t - 2*60 ) $timestate = 1;
-if (time() > $sunrise) $timestate = 2;
+if (time() > $sunrise_t) $timestate = 2;
 if (time() > $sunset_t - 2*60) $timestate = 3;
 if (time() > $sunset_t) $timestate = 4;
 
