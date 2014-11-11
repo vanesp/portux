@@ -1,35 +1,88 @@
 {
     "_readme": [
         "This file locks the dependencies of your project to a known state",
-        "Read more about it at http://getcomposer.org/doc/01-basic-usage.md#composer-lock-the-lock-file"
+        "Read more about it at http://getcomposer.org/doc/01-basic-usage.md#composer-lock-the-lock-file",
+        "This file is @generated automatically"
     ],
-    "hash": "fd9a1e48a88fde95fd7b34599885524d",
+    "hash": "d05fe675ceb2cb0d0701398c7ff0b62f",
     "packages": [
         {
-            "name": "predis/predis",
-            "version": "v0.8.4",
+            "name": "clue/redis-protocol",
+            "version": "v0.3.0",
             "source": {
                 "type": "git",
-                "url": "https://github.com/nrk/predis.git",
-                "reference": "cb18d67b6ab6b8e567c1ab50fe999d1d624f9884"
+                "url": "https://github.com/clue/php-redis-protocol.git",
+                "reference": "2ffcdfa281b1084f666340e13f05a1d26d35ed26"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/nrk/predis/zipball/cb18d67b6ab6b8e567c1ab50fe999d1d624f9884",
-                "reference": "cb18d67b6ab6b8e567c1ab50fe999d1d624f9884",
+                "url": "https://api.github.com/repos/clue/php-redis-protocol/zipball/2ffcdfa281b1084f666340e13f05a1d26d35ed26",
+                "reference": "2ffcdfa281b1084f666340e13f05a1d26d35ed26",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=5.3"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-0": {
+                    "Clue\\Redis\\Protocol": "src"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Christian Lück",
+                    "email": "christian@lueck.tv"
+                }
+            ],
+            "description": "A streaming redis wire protocol parser and serializer implementation in PHP",
+            "homepage": "https://github.com/clue/redis-protocol",
+            "keywords": [
+                "parser",
+                "protocol",
+                "redis",
+                "serializer",
+                "streaming"
+            ],
+            "time": "2014-01-26 23:49:05"
+        },
+        {
+            "name": "predis/predis",
+            "version": "v1.0.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/nrk/predis.git",
+                "reference": "d4be306d0aca28b5633b96adef03b29fea569c2f"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/nrk/predis/zipball/d4be306d0aca28b5633b96adef03b29fea569c2f",
+                "reference": "d4be306d0aca28b5633b96adef03b29fea569c2f",
                 "shasum": ""
             },
             "require": {
                 "php": ">=5.3.2"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "~4.0"
             },
             "suggest": {
                 "ext-curl": "Allows access to Webdis when paired with phpiredis",
                 "ext-phpiredis": "Allows faster serialization and deserialization of the Redis protocol"
             },
             "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-master": "1.0-dev"
+                }
+            },
             "autoload": {
-                "psr-0": {
-                    "Predis": "lib/"
+                "psr-4": {
+                    "Predis\\": "src/"
                 }
             },
             "notification-url": "https://packagist.org/downloads/",
@@ -50,7 +103,7 @@
                 "predis",
                 "redis"
             ],
-            "time": "2013-07-27 09:13:54"
+            "time": "2014-08-01 09:59:50"
         },
         {
             "name": "predis/predis-async",
@@ -58,24 +111,30 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/nrk/predis-async.git",
-                "reference": "d189d2e4ad91b0f6f25ccf02e4c424a8f6b3a4a6"
+                "reference": "b278b9efc40386149c29205224a617d3024cd559"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/nrk/predis-async/zipball/d189d2e4ad91b0f6f25ccf02e4c424a8f6b3a4a6",
-                "reference": "d189d2e4ad91b0f6f25ccf02e4c424a8f6b3a4a6",
+                "url": "https://api.github.com/repos/nrk/predis-async/zipball/b278b9efc40386149c29205224a617d3024cd559",
+                "reference": "b278b9efc40386149c29205224a617d3024cd559",
                 "shasum": ""
             },
             "require": {
-                "ext-phpiredis": "*",
-                "php": ">=5.3.0",
-                "predis/predis": "0.8.*",
-                "react/event-loop": "0.3.*"
+                "clue/redis-protocol": "0.3.*",
+                "php": ">=5.4.0",
+                "predis/predis": "~1.0",
+                "react/event-loop": "0.4.*"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "~4.0"
+            },
+            "suggest": {
+                "ext-phpiredis": "Allows faster serialization and deserialization of the Redis protocol"
             },
             "type": "library",
             "autoload": {
-                "psr-0": {
-                    "Predis\\Async": "lib/"
+                "psr-4": {
+                    "Predis\\Async\\": "src/"
                 }
             },
             "notification-url": "https://packagist.org/downloads/",
@@ -96,39 +155,39 @@
                 "predis",
                 "redis"
             ],
-            "time": "2013-10-18 09:47:07"
+            "time": "2014-10-26 13:24:49"
         },
         {
             "name": "react/event-loop",
-            "version": "v0.3.3",
-            "target-dir": "React/EventLoop",
+            "version": "v0.4.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/reactphp/event-loop.git",
-                "reference": "49208fa3a15c9eae4adf8351ee9caa4064fe550d"
+                "reference": "18c5297087ca01de85518e2b55078f444144aa1b"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/reactphp/event-loop/zipball/49208fa3a15c9eae4adf8351ee9caa4064fe550d",
-                "reference": "49208fa3a15c9eae4adf8351ee9caa4064fe550d",
+                "url": "https://api.github.com/repos/reactphp/event-loop/zipball/18c5297087ca01de85518e2b55078f444144aa1b",
+                "reference": "18c5297087ca01de85518e2b55078f444144aa1b",
                 "shasum": ""
             },
             "require": {
-                "php": ">=5.3.3"
+                "php": ">=5.4.0"
             },
             "suggest": {
+                "ext-event": "~1.0",
                 "ext-libev": "*",
-                "ext-libevent": ">=0.0.5"
+                "ext-libevent": ">=0.1.0"
             },
             "type": "library",
             "extra": {
                 "branch-alias": {
-                    "dev-master": "0.3-dev"
+                    "dev-master": "0.4-dev"
                 }
             },
             "autoload": {
-                "psr-0": {
-                    "React\\EventLoop": ""
+                "psr-4": {
+                    "React\\EventLoop\\": ""
                 }
             },
             "notification-url": "https://packagist.org/downloads/",
@@ -139,23 +198,16 @@
             "keywords": [
                 "event-loop"
             ],
-            "time": "2013-07-08 22:38:22"
+            "time": "2014-02-26 17:36:58"
         }
     ],
-    "packages-dev": [
-
-    ],
-    "aliases": [
-
-    ],
+    "packages-dev": [],
+    "aliases": [],
     "minimum-stability": "stable",
     "stability-flags": {
         "predis/predis-async": 20
     },
-    "platform": [
-
-    ],
-    "platform-dev": [
-
-    ]
+    "prefer-stable": false,
+    "platform": [],
+    "platform-dev": []
 }

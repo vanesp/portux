@@ -13,10 +13,14 @@
 //
 // </copyright>
 // <author>Peter van Es</author>
-// <version>1.3</version>
+// <version>1.4</version>
 // <email>vanesp@escurio.com</email>
-// <date>2014-03-08</date>
+// <date>2014-11-11</date>
 // <summary>controller receives messages from pub/sub redis and acts upon them</summary>
+
+// version 1.4
+
+// Updated for nrk/predis version 1.0
 
 // version 1.3
 
@@ -755,7 +759,7 @@ $count = 0;		// counter for number of messages
 
 if ($pubredis) {
 	// Initialize a new pubsub context
-	$pubsub = $redis->pubSub();
+	$pubsub = $redis->pubSubLoop();
 
 	// Subscribe to your channels
 	$pubsub->subscribe('ss:event');
