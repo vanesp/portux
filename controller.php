@@ -16,7 +16,7 @@
 // <version>1.3</version>
 // <email>vanesp@escurio.com</email>
 // <date>2014-03-08</date>
-// <summary>controller received messages from pub/sub redis and acts upon them</summary>
+// <summary>controller receives messages from pub/sub redis and acts upon them</summary>
 
 // version 1.3
 
