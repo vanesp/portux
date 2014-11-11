@@ -28,6 +28,16 @@ To control the lights, two additional processes are defined:
   depending on the actions it publishes Switch type messages on the channel, which the 
   Nodo software on rpi1.local sends to the Nodo via a serial port to take action on.
 
+In order to send notifications of water alerts, a further process is created:
+
+- notifier.php (a daemon started from inittab) which checks PubSub messages for a Motion event on
+  Room id 6, which indicates that water is detected. It then sends an e-mail (and does that every 24
+  hours if the event keeps happening) alerting the user.
+
+  This e-mail can be redirected to an SMS
+
+  Note that notifier needs to be run on a system with an e-mail service, i.e. on bali
+
 ## PubSub Messages
 
 The channel is 'ss:event' for socketstream event.
@@ -46,7 +56,7 @@ because this allows easier subscription to e.g. all motion events, or all temper
 
 Additional kinds of messages are:
 
-* Motion messages (type = Motion, location is 2 (Studeerkamer) or 3 (Woonkamer) by rcvsend)
+* Motion messages (type = Motion, location is Room id, i.e. 2 (Studeerkamer) or 3 (Woonkamer) by rcvsend)
 * Switch messages (type = Switch, location is 1..4, quantity is the command string, 
   value is true (On) or false (Off))
 * Tick messages (type is Tick, location is blank, as is quantity, value has a timestamp)
@@ -94,12 +104,14 @@ to start it up automatically, and it needs to be initialised by root as:
     sudo update-rc.d rcvsend start 40 2 3 4 5 . stop 40 0 1 6 .
     sudo update-rc.d timer start 45 2 3 4 5 . stop 45 0 1 6 .
     sudo update-rc.d controller start 50 2 3 4 5 . stop 40 0 1 6 .
+    sudo update-rc.d notifier start 55 2 3 4 5 . stop 40 0 1 6 .
 
 To remove, execute
 
     sudo update-rc.d rcvsend remove
     sudo update-rc.d timer remove
     sudo update-rc.d controller remove
+    sudo update-rc.d notifier remove
    
 To start them manually, go to directory /etc/init.d and execute:
 
