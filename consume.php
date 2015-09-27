@@ -76,7 +76,7 @@ function open_remote_db () {
 	// Open the database connection
 	$remote = mysql_connect($RHOST, $RDBUSER, $RDBPASS);
 	if (!$remote) {
-		$message = date('Y-m-d H:i') . " Consume: Remote database connection failed " . mysql_error($remote) . "\n";
+		$message = date('Y-m-d H:i') . " Consume: Remote database connection failed " . mysql_error() . "\n";
 		error_log($message, 3, $LOGFILE);
 		return false;
 	}
@@ -84,7 +84,7 @@ function open_remote_db () {
 	// See if we can open the database
 	$db_r = mysql_select_db ($RDATABASE, $remote);
 	if (!$db_r) {
-		$message = date('Y-m-d H:i') . " Consume: Failed to open $RDATABASE " . mysql_error($remote) . "\n";
+		$message = date('Y-m-d H:i') . " Consume: Failed to open $RDATABASE " . mysql_error() . "\n";
 		error_log($message, 3, $LOGFILE);
 		$remote = false;
 	}
@@ -95,7 +95,7 @@ function open_remote_db () {
 // Open the database
 $remote = open_remote_db();
 if (!$remote) {
-	$message = date('Y-m-d H:i') . " Consume: Cannot open remote database " . mysql_error($remote) . "\n";
+	$message = date('Y-m-d H:i') . " Consume: Cannot open remote database " . mysql_error() . "\n";
 	error_log($message, 3, $LOGFILE);
 	exit (1);
 }
