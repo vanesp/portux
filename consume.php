@@ -435,20 +435,21 @@ while ($msg = $redis->lpop('queue')) {	   // while there is stuff in the queue
 					}
 				} // if RNR
 			} // if numrows
-		} // if GNR
-	} // version 1.6, if roomid != 18
-	else {
-		// we have a p1scanner packet
-		// $field[2..x] contain decimal representations of packed p1 data
-		//  Decode JeeLabs compressed longs format
-		//
-		// for more details - http://jeelabs.org/2013/01/03/processing-p1-data/
-		// forum thread - http://jeelabs.net/boards/6/topics/3446
+                } else {  // version 1.6, if roomid != 18
+
+    		    // we have a p1scanner packet
+    		    // $field[2..x] contain decimal representations of packed p1 data
+    		    //  Decode JeeLabs compressed longs format
+    		    //
+    		    // for more details - http://jeelabs.org/2013/01/03/processing-p1-data/
+    		    // forum thread - http://jeelabs.net/boards/6/topics/3446
 		
-		$ints = [];	// array to receive the values
-		$v = 0;
+    		    $ints = [];	// array to receive the values
+    		    $v = 0;
 		
-		for  ($i = 2; $i<count($field); $i++) {
+    		    if ($debug) echo count($field), " values in field\n";
+		
+    		    for  ($i = 2; $i<count($field); $i++) {
 			$b = intval($field[$i]);
 			$v = ($v << 7) + ($b & 0x7F);
 			if ($b & 0x80) {
@@ -456,9 +457,9 @@ while ($msg = $redis->lpop('queue')) {	   // while there is stuff in the queue
 			    $ints[] = $v;
 			    $v = 0;
 			}
-		}
+                    }
 		                        
-		if ($ints[0] == 1) {
+                    if ($ints[0] == 1) {
 			$use1 = $ints[1];	// electricity usage in watts
 		        $use2 = $ints[2];	
 		        $gen1 = $ints[3];	// electricity generated
@@ -467,34 +468,33 @@ while ($msg = $redis->lpop('queue')) {	   // while there is stuff in the queue
 		        $usew = $ints[6];	// actual usage
 		        $genw = $ints[7];
 		        $gas =  $ints[9];	// gas usage in m3
-		}
+                    }
 		                                        
-		if ($debug) print_r ($ints);
+                    if ($debug) print_r ($ints);
 		                         
-	        // create a query, update values
-		$insertq = "INSERT INTO P1log SET pid='".$roomid."', tstamp='".$ts."', use1='".$use1."', use2='".$use2."', gen1='".$gen1."'";
-		$insetq .= ", gen2='".$gen2."', mode='".$mode."', usew='".$usew."', genw='".$genw."', gas='".$gas."'";
+                    // create a query, update values
+                    $insertq = "INSERT INTO P1log SET pid='".$roomid."', tstamp='".$ts."', use1='".$use1."', use2='".$use2."', gen1='".$gen1."'";
+                    $insertq .= ", gen2='".$gen2."', mode='".$mode."', usew='".$usew."', genw='".$genw."', gas='".$gas."'";
 
-		}
-		if ($debug) echo $insertq, "\n";
-		if (($res = mysql_query ($insertq, $remote))===false) {
+                    if ($debug) echo $insertq, "\n";
+                    if (($res = mysql_query ($insertq, $remote))===false) {
 			$message = date('Y-m-d H:i') . " Consume: Could not insert P1log " . mysql_error($remote) . "\n";
 			error_log($message, 3, $LOGFILE);
 			if (mysql_errno($remote) === 1062) {
 				// it is a Duplicate Key message... delete the record anyway by setting $upd_done to true
 				$upd_done = true;
 			}
-	        }
-		// now update the sensor timestamp and battery status
-		$updateq = "UPDATE Sensor SET tstamp='".$ts."', lobatt='".$lobat."' WHERE id='".$roomid."'";
-		if ($debug) echo $updateq, "\n";
-		if (($res = mysql_query ($updateq, $remote))===false) {
+                    }
+                    // now update the sensor timestamp and battery status
+                    $updateq = "UPDATE Sensor SET tstamp='".$ts."', lobatt='".$lobat."' WHERE id='".$roomid."'";
+                    if ($debug) echo $updateq, "\n";
+                    if (($res = mysql_query ($updateq, $remote))===false) {
 			$message = date('Y-m-d H:i') . " Consume: Could not update Sensor " . mysql_error($remote) . "\n";
 			error_log($message, 3, $LOGFILE);
-		}
+                    }
 	
-	}
-	
+		} // else
+        } // if GNR	
 } // while
 mysql_close ($remote);
 
