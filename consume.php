@@ -35,6 +35,15 @@
 
 // version 1.5 - retrieve queued values from local redis store instead of mysql
 
+// version 1.6 - GNR with node id 18 is a p1scanner message with electricity and gas usage values
+// @dir p1scanner
+// Parse P1 data from smart meter and send as compressed packet over RF12.
+// @see http://jeelabs.org/2013/01/02/encoding-p1-data/
+// 2012-12-31 <jc@wippler.nl> http://opensource.org/licenses/mit-license.php
+// Note: 
+// Node=18
+
+
 // data for Cosm updates
 include('PachubeAPI.php');
 include('pachubeaccess.php');
@@ -296,135 +305,196 @@ while ($msg = $redis->lpop('queue')) {	   // while there is stuff in the queue
 		// field 1 = header
 		$roomid = $field[1] & 0x1F;		// node from the header
 
-		$query = "SELECT id, sensortype, datastream, location FROM Sensor WHERE idroom='" . $roomid . "'";
-		if ($debug) echo "Query ", $query, "\n";
-		if (($result = mysql_query ($query, $remote))===false) {
-			$message = date('Y-m-d H:i') . " Could not read Sensor " . mysql_error($remote) . "\n";
+                // from version 1.6, nodeid = 18 means p1scanner
+                if ($roomid != 18) {
+                	// normal node id
+			$query = "SELECT id, sensortype, datastream, location FROM Sensor WHERE idroom='" . $roomid . "'";
+			if ($debug) echo "Query ", $query, "\n";
+			if (($result = mysql_query ($query, $remote))===false) {
+				$message = date('Y-m-d H:i') . " Could not read Sensor " . mysql_error($remote) . "\n";
+				error_log($message, 3, $LOGFILE);
+			}
+
+			$nr = mysql_num_rows($result);
+			if ($nr < 1) {
+				$message = date('Y-m-d H:i') . " Consume: idroom not found " . $roomid . "\n";
+				error_log($message, 3, $LOGFILE);
+			} else {
+				// decode message depending on sensortype
+				$Record = mysql_fetch_array($result, MYSQL_ASSOC);
+				$id = $Record['id'];
+				$type = $Record['sensortype'];
+				$location = $Record['location'];
+				// get Pachube value
+				$datastream = $Record['datastream'];
+
+				if (strstr($type, "RNR")) {
+					// RNR content
+					// it will be:
+					// 1 - header (with idroom in it - if ack is set, then we have a PIR trigger
+					// 2 - lightlevel
+					// 3 - moved
+					// 4 - humidity
+					// 5 & 6 - signed integer value, temp
+					// 7 - lobat
+					// Room node. PIR is on if ACK is set
+					$pir = (($field[1] & 0x20) == 0x20);
+					$light = round ($field[2] / 2.55, 0);		// lightness 0..100%
+					$moved = $field[3] & 0x01;
+					$humid = $field[4] & 0x7F;					// bottom 7 bits only
+					// temperature is two values, little endian, so least significant byte first
+					// do this to preserve signs
+					$binarydata = pack("C2", $field[5], $field[6]);
+					$out = unpack("sshort/", $binarydata);
+					$t1 = $out['short'];
+					// $t1 = $field[5] + $field[6] * 256;
+					$temp = $t1 / 10;		// divide by 10
+					$lobat = $field[7] & 0x01;
+					if ($pir) {
+						// it is a PIR alert
+						$insertq = "INSERT INTO Motionlog SET pid='".$id."', tstamp='".$ts."', movement='1'";
+					} else {
+						// regular data update
+						$insertq = "INSERT INTO Roomlog SET pid='".$id."', tstamp='".$ts."', light='".$light."', humidity='".$humid."', temp='".$temp."'";
+
+					}
+					if ($debug) echo $insertq, "\n";
+					if (($res = mysql_query ($insertq, $remote))===false) {
+						$message = date('Y-m-d H:i') . " Consume: Could not insert event " . mysql_error($remote) . "\n";
+						error_log($message, 3, $LOGFILE);
+						if (mysql_errno($remote) === 1062) {
+							// it is a Duplicate Key message... delete the record anyway by setting $upd_done to true
+							$upd_done = true;
+						}
+					} else {
+						$upd_done = true;
+
+						// update Redis
+						// Motion records should be sent immediately, so
+						// they are sent by rcvsend.php
+						if (!$pir && $publish && $pubredis) {
+							// update Redis using socketstream message
+							$msg = new PubMessage;
+							if ($debug) echo "Redis publishing RNR ".$location."\n";
+							$msg->setParams('Light', $location, '%', $light);
+							try {
+								// update Redis using Set
+								$key = $location.":Light";
+								$redis->set ($key, $light);
+								// $redis->set ($location.":Light", $light);
+								// $redis->publish('ss:event', json_encode($msg));
+							}
+							catch (Exception $e) {
+								$message = date('Y-m-d H:i') . " Consume: Cannot publish to Redis " . $e->getMessage() . "\n";
+								error_log($message, 3, $LOGFILE);
+							}
+							$msg->setParams('Humidity', $location, '%', $humid);
+							try {
+								// update Redis using Set
+								$key = $location.":Humidity";
+								$redis->set ($key, $humid);
+								// $redis->set ($location.":Humidity", $humid);
+								// $redis->publish('ss:event', json_encode($msg));
+							}
+							catch (Exception $e) {
+								$message = date('Y-m-d H:i') . " Consume: Cannot publish to Redis " . $e->getMessage() . "\n";
+								error_log($message, 3, $LOGFILE);
+							}
+							$msg->setParams('Temperature', $location, '°C', $temp);
+							try {
+								// update Redis using Set
+								$key = $location.":Temperature";
+								$redis->set ($key, $temp);
+								// $redis->set ($location.":Temperature", $temp);
+								// $redis->publish('ss:event', json_encode($msg));
+							}
+							catch (Exception $e) {
+								$message = date('Y-m-d H:i') . " Consume: Cannot publish to Redis " . $e->getMessage() . "\n";
+								error_log($message, 3, $LOGFILE);
+							}
+						}
+
+						// and update Pachube / Cosm
+						if (!$pir && $publish && ($datastream != '')) {
+							// update Pachube/Cosm
+							$data = '"' . $light . '"';
+							$result = $pachube->updateDataStream("csv", $feed, $datastream.'_1' , $data);
+							$data = '"' . $humid . '"';
+							$result = $pachube->updateDataStream("csv", $feed, $datastream.'_2' , $data);
+							$data = '"' . $temp . '"';
+							$result = $pachube->updateDataStream("csv", $feed, $datastream.'_3' , $data);
+						}
+
+					}
+					// now update the sensor timestamp and battery status
+					$updateq = "UPDATE Sensor SET tstamp='".$ts."', lobatt='".$lobat."' WHERE id='".$id."'";
+					if ($debug) echo $updateq, "\n";
+					if (($res = mysql_query ($updateq, $remote))===false) {
+						$message = date('Y-m-d H:i') . " Consume: Could not update Sensor " . mysql_error($remote) . "\n";
+						error_log($message, 3, $LOGFILE);
+					}
+				} // if RNR
+			} // if numrows
+		} // if GNR
+	} // version 1.6, if roomid != 18
+	else {
+		// we have a p1scanner packet
+		// $field[2..x] contain decimal representations of packed p1 data
+		//  Decode JeeLabs compressed longs format
+		//
+		// for more details - http://jeelabs.org/2013/01/03/processing-p1-data/
+		// forum thread - http://jeelabs.net/boards/6/topics/3446
+		
+		$ints = [];	// array to receive the values
+		$v = 0;
+		
+		for  ($i = 2; $i<count($field); $i++) {
+			$b = intval($field[$i]);
+			$v = ($v << 7) + ($b & 0x7F);
+			if ($b & 0x80) {
+		            // top bit set, store this and get next value
+			    $ints[] = $v;
+			    $v = 0;
+			}
+		}
+		                        
+		if ($ints[0] == 1) {
+			$use1 = $ints[1];	// electricity usage in watts
+		        $use2 = $ints[2];	
+		        $gen1 = $ints[3];	// electricity generated
+		        $gen2 = $ints[4];
+		        $mode = $ints[5];	
+		        $usew = $ints[6];	// actual usage
+		        $genw = $ints[7];
+		        $gas =  $ints[9];	// gas usage in m3
+		}
+		                                        
+		if ($debug) print_r ($ints);
+		                         
+	        // create a query, update values
+		$insertq = "INSERT INTO P1log SET pid='".$roomid."', tstamp='".$ts."', use1='".$use1."', use2='".$use2."', gen1='".$gen1."'";
+		$insetq .= ", gen2='".$gen2."', mode='".$mode."', usew='".$usew."', genw='".$genw."', gas='".$gas."'";
+
+		}
+		if ($debug) echo $insertq, "\n";
+		if (($res = mysql_query ($insertq, $remote))===false) {
+			$message = date('Y-m-d H:i') . " Consume: Could not insert P1log " . mysql_error($remote) . "\n";
+			error_log($message, 3, $LOGFILE);
+			if (mysql_errno($remote) === 1062) {
+				// it is a Duplicate Key message... delete the record anyway by setting $upd_done to true
+				$upd_done = true;
+			}
+	        }
+		// now update the sensor timestamp and battery status
+		$updateq = "UPDATE Sensor SET tstamp='".$ts."', lobatt='".$lobat."' WHERE id='".$roomid."'";
+		if ($debug) echo $updateq, "\n";
+		if (($res = mysql_query ($updateq, $remote))===false) {
+			$message = date('Y-m-d H:i') . " Consume: Could not update Sensor " . mysql_error($remote) . "\n";
 			error_log($message, 3, $LOGFILE);
 		}
-
-		$nr = mysql_num_rows($result);
-		if ($nr < 1) {
-			$message = date('Y-m-d H:i') . " Consume: idroom not found " . $roomid . "\n";
-			error_log($message, 3, $LOGFILE);
-		} else {
-			// decode message depending on sensortype
-			$Record = mysql_fetch_array($result, MYSQL_ASSOC);
-			$id = $Record['id'];
-			$type = $Record['sensortype'];
-			$location = $Record['location'];
-			// get Pachube value
-			$datastream = $Record['datastream'];
-
-			if (strstr($type, "RNR")) {
-				// RNR content
-				// it will be:
-				// 1 - header (with idroom in it - if ack is set, then we have a PIR trigger
-				// 2 - lightlevel
-				// 3 - moved
-				// 4 - humidity
-				// 5 & 6 - signed integer value, temp
-				// 7 - lobat
-				// Room node. PIR is on if ACK is set
-				$pir = (($field[1] & 0x20) == 0x20);
-				$light = round ($field[2] / 2.55, 0);		// lightness 0..100%
-				$moved = $field[3] & 0x01;
-				$humid = $field[4] & 0x7F;					// bottom 7 bits only
-				// temperature is two values, little endian, so least significant byte first
-				// do this to preserve signs
-				$binarydata = pack("C2", $field[5], $field[6]);
-				$out = unpack("sshort/", $binarydata);
-				$t1 = $out['short'];
-				// $t1 = $field[5] + $field[6] * 256;
-				$temp = $t1 / 10;		// divide by 10
-				$lobat = $field[7] & 0x01;
-				if ($pir) {
-					// it is a PIR alert
-					$insertq = "INSERT INTO Motionlog SET pid='".$id."', tstamp='".$ts."', movement='1'";
-				} else {
-					// regular data update
-					$insertq = "INSERT INTO Roomlog SET pid='".$id."', tstamp='".$ts."', light='".$light."', humidity='".$humid."', temp='".$temp."'";
-
-				}
-				if ($debug) echo $insertq, "\n";
-				if (($res = mysql_query ($insertq, $remote))===false) {
-					$message = date('Y-m-d H:i') . " Consume: Could not insert event " . mysql_error($remote) . "\n";
-					error_log($message, 3, $LOGFILE);
-					if (mysql_errno($remote) === 1062) {
-						// it is a Duplicate Key message... delete the record anyway by setting $upd_done to true
-						$upd_done = true;
-					}
-				} else {
-					$upd_done = true;
-
-					// update Redis
-					// Motion records should be sent immediately, so
-					// they are sent by rcvsend.php
-					if (!$pir && $publish && $pubredis) {
-						// update Redis using socketstream message
-						$msg = new PubMessage;
-						if ($debug) echo "Redis publishing RNR ".$location."\n";
-						$msg->setParams('Light', $location, '%', $light);
-						try {
-							// update Redis using Set
-							$key = $location.":Light";
-							$redis->set ($key, $light);
-							// $redis->set ($location.":Light", $light);
-							// $redis->publish('ss:event', json_encode($msg));
-						}
-						catch (Exception $e) {
-							$message = date('Y-m-d H:i') . " Consume: Cannot publish to Redis " . $e->getMessage() . "\n";
-							error_log($message, 3, $LOGFILE);
-						}
-						$msg->setParams('Humidity', $location, '%', $humid);
-						try {
-							// update Redis using Set
-							$key = $location.":Humidity";
-							$redis->set ($key, $humid);
-							// $redis->set ($location.":Humidity", $humid);
-							// $redis->publish('ss:event', json_encode($msg));
-						}
-						catch (Exception $e) {
-							$message = date('Y-m-d H:i') . " Consume: Cannot publish to Redis " . $e->getMessage() . "\n";
-							error_log($message, 3, $LOGFILE);
-						}
-						$msg->setParams('Temperature', $location, '°C', $temp);
-						try {
-							// update Redis using Set
-							$key = $location.":Temperature";
-							$redis->set ($key, $temp);
-							// $redis->set ($location.":Temperature", $temp);
-							// $redis->publish('ss:event', json_encode($msg));
-						}
-						catch (Exception $e) {
-							$message = date('Y-m-d H:i') . " Consume: Cannot publish to Redis " . $e->getMessage() . "\n";
-							error_log($message, 3, $LOGFILE);
-						}
-					}
-
-					// and update Pachube / Cosm
-					if (!$pir && $publish && ($datastream != '')) {
-						// update Pachube/Cosm
-						$data = '"' . $light . '"';
-						$result = $pachube->updateDataStream("csv", $feed, $datastream.'_1' , $data);
-						$data = '"' . $humid . '"';
-						$result = $pachube->updateDataStream("csv", $feed, $datastream.'_2' , $data);
-						$data = '"' . $temp . '"';
-						$result = $pachube->updateDataStream("csv", $feed, $datastream.'_3' , $data);
-					}
-
-				}
-				// now update the sensor timestamp and battery status
-				$updateq = "UPDATE Sensor SET tstamp='".$ts."', lobatt='".$lobat."' WHERE id='".$id."'";
-				if ($debug) echo $updateq, "\n";
-				if (($res = mysql_query ($updateq, $remote))===false) {
-					$message = date('Y-m-d H:i') . " Consume: Could not update Sensor " . mysql_error($remote) . "\n";
-					error_log($message, 3, $LOGFILE);
-				}
-			} // if RNR
-		} // if numrows
-	} // if GNR
-
+	
+	}
+	
 } // while
 mysql_close ($remote);
 
