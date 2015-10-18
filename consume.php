@@ -71,8 +71,12 @@ date_default_timezone_set('Europe/Amsterdam');
 
 // DEBUG and other flags
 $debug = false;
-$publish = true;	   // publish data? (Pachube/Redis)
-$pubredis = true;	   // publish redis?
+$publish = false;	   // publish data? (Pachube only)
+$pubredis = true;	   // publish redis? 
+
+$P1 = 18;		   // define the P1 node number. If 0, do not include P1 code
+                           // if it is defined, stop processing electricity pulses 
+$ELEC = 8;		   // id of ELEC sensor in database, needed only when P1 in use
 
 // do timeout if not done within 60 seconds (as the next process will be invoked)
 set_time_limit(59);
@@ -188,43 +192,43 @@ while ($msg = $redis->lpop('queue')) {	   // while there is stuff in the queue
 					// it is a Duplicate Key message... delete the record anyway by setting $upd_done to true
 					$upd_done = true;
 				}
-				} else {
+                        } else {
 					$upd_done = true;
-				}
-				// now update the sensor timestamp and battery status
-				$updateq = "UPDATE Sensor SET tstamp='".$ts."', lobatt=0 WHERE id='".$id."'";
-				if ($debug) echo $updateq, "\n";
-				if (($res = mysql_query ($updateq, $remote))===false) {
-					$message = date('Y-m-d H:i') . " Consume: Could not update Sensor " . mysql_error($remote) . "\n";
-					error_log($message, 3, $LOGFILE);
-				}
-				if ($publish) {
-					if ($pubredis) {
-						// update Redis using socketstream message
-						$msg = new PubMessage;
-						$msg->setParams($sensortype, $location, $quantity, $value);
-						if ($debug) echo "Redis publishing ".$sensortype." ".$location.": ".$value."\n";
-						try {
-							// update Redis using Set
-							$key = $location.":".$sensortype;
-							$redis->set ($key, $value);
-							// $redis->publish('ss:event', json_encode($msg));
-						}
-						catch (Exception $e) {
-							$message = date('Y-m-d H:i') . " Consume: Cannot publish to Redis " . $e->getMessage() . "\n";
-							if ($debug) error_log($message, 3, $LOGFILE);
-						}
-					}
-					// and update Pachube / Cosm
-					$data = '"' . $value . '"';
-					if ($datastream != '') {
-							$result = $pachube->updateDataStream("csv", $feed, $datastream, $data);
-					}
-				}
-		}
+			}
+			// now update the sensor timestamp and battery status
+			$updateq = "UPDATE Sensor SET tstamp='".$ts."', lobatt=0 WHERE id='".$id."'";
+			if ($debug) echo $updateq, "\n";
+			if (($res = mysql_query ($updateq, $remote))===false) {
+			    $message = date('Y-m-d H:i') . " Consume: Could not update Sensor " . mysql_error($remote) . "\n";
+			    error_log($message, 3, $LOGFILE);
+			}
+			if ($pubredis) {
+			    // update Redis using socketstream message
+			    $msg = new PubMessage;
+			    $msg->setParams($sensortype, $location, $quantity, $value);
+                            if ($debug) echo "Redis publishing ".$sensortype." ".$location.": ".$value."\n";
+			    try {
+			        // update Redis using Set
+			        $key = $location.":".$sensortype;
+				$redis->set ($key, $value);
+				// $redis->publish('ss:event', json_encode($msg));
+                            }
+			    catch (Exception $e) {
+			        $message = date('Y-m-d H:i') . " Consume: Cannot publish to Redis " . $e->getMessage() . "\n";
+				if ($debug) error_log($message, 3, $LOGFILE);
+                            }
+                        }
+			if ($publish) { // and update Pachube / Cosm
+			    $data = '"' . $value . '"';
+			    if ($datastream != '') {
+			        $result = $pachube->updateDataStream("csv", $feed, $datastream, $data);
+                            }
+                        }
+                }
 	} // if TMP
 
-	if (strpos($buf, "ELEC") === 0) {
+	// changed so that P1 needs to be 0 too, otherwise use the P1 sender
+	if (strpos($buf, "ELEC") === 0 && $P1 == 0) {
 		// generic electricity sender
 		// field 0 = ELEC
 		// field 1 = instantaneous power
@@ -272,8 +276,7 @@ while ($msg = $redis->lpop('queue')) {	   // while there is stuff in the queue
 				$message = date('Y-m-d H:i') . " Consume: Could not update Sensor " . mysql_error($remote) . "\n";
 				error_log($message, 3, $LOGFILE);
 			}
-			if ($publish) {
-				if ($pubredis) {
+                        if ($pubredis) {
 					// update Redis using socketstream message
 					$msg = new PubMessage;
 					$msg->setParams($sensortype, $location, 'W', $power);
@@ -288,7 +291,8 @@ while ($msg = $redis->lpop('queue')) {	   // while there is stuff in the queue
 							$message = date('Y-m-d H:i') . " Consume: Cannot publish to Redis " . $e->getMessage() . "\n";
 							if ($debug) error_log($message, 3, $LOGFILE);
 					}
-				}
+                        }
+			if ($publish) {
 				// and update Pachube / Cosm
 				$data = '"' . $power . '"';
 				if ($datastream != '') {
@@ -305,8 +309,8 @@ while ($msg = $redis->lpop('queue')) {	   // while there is stuff in the queue
 		// field 1 = header
 		$roomid = $field[1] & 0x1F;		// node from the header
 
-                // from version 1.6, nodeid = 18 means p1scanner
-                if ($roomid != 18) {
+                // from version 1.6, nodeid = $P1 means p1scanner
+                if ($roomid != $P1) {
                 	// normal node id
 			$query = "SELECT id, sensortype, datastream, location FROM Sensor WHERE idroom='" . $roomid . "'";
 			if ($debug) echo "Query ", $query, "\n";
@@ -372,7 +376,7 @@ while ($msg = $redis->lpop('queue')) {	   // while there is stuff in the queue
 						// update Redis
 						// Motion records should be sent immediately, so
 						// they are sent by rcvsend.php
-						if (!$pir && $publish && $pubredis) {
+						if (!$pir && $pubredis) {
 							// update Redis using socketstream message
 							$msg = new PubMessage;
 							if ($debug) echo "Redis publishing RNR ".$location."\n";
@@ -435,7 +439,7 @@ while ($msg = $redis->lpop('queue')) {	   // while there is stuff in the queue
 					}
 				} // if RNR
 			} // if numrows
-                } else {  // version 1.6, if roomid != 18
+                } else {  // version 1.6, if roomid != $P1
 
     		    // we have a p1scanner packet
     		    // $field[2..x] contain decimal representations of packed p1 data
@@ -486,10 +490,19 @@ while ($msg = $redis->lpop('queue')) {	   // while there is stuff in the queue
 			}
                     }
                     // now update the sensor timestamp and battery status
-                    $updateq = "UPDATE Sensor SET tstamp='".$ts."', lobatt='".$lobat."' WHERE id='".$roomid."'";
+                    $elec = $use1 + $use2;
+                    $updateq = "UPDATE Sensor SET tstamp='".$ts."', lobatt='0', cum_gas_pulse='".$gas."', cum_elec_pulse='".$elec."' WHERE id='".$roomid."'";
                     if ($debug) echo $updateq, "\n";
                     if (($res = mysql_query ($updateq, $remote))===false) {
 			$message = date('Y-m-d H:i') . " Consume: Could not update Sensor " . mysql_error($remote) . "\n";
+			error_log($message, 3, $LOGFILE);
+                    }
+
+                    // and, if P1 set, also insert the value in the electricity sensor
+                    $insertq = "INSERT INTO Sensorlog SET pid='".$ELEC."', tstamp='".$ts."', value='".$usew."', count='".$usew."'";
+                    if ($debug) echo $insertq, "\n";
+                    if (($res = mysql_query ($insertq, $remote))===false) {
+			$message = date('Y-m-d H:i') . " Consume: Could not insert Sensorlog " . mysql_error($remote) . "\n";
 			error_log($message, 3, $LOGFILE);
                     }
 	
