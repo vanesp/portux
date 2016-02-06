@@ -485,7 +485,7 @@ function handleTick() {
 					// processing is identical to time, except that the time-on is set to sunset...
 					// time off is in the record
 					$switch['time_on'] = $sunset;
-					$switch['nextevent'] = strtotime("today ".$switch['time_on']);
+					// $switch['nextevent'] = strtotime("today ".$switch['time_on']);
 				}
 				// so drop through to the next set, where also the forced items get reset
 			case 'time':
@@ -509,20 +509,14 @@ function handleTick() {
 				if ($start_t >= $finish_t) $finish_t = strtotime("tomorrow ".$switch['time_off']);
 				$t = time();
 
-				// make sure the next time for action is set ok, but preserve FORCED flag
+				// make sure the next time for action is set ok
 				if ($t >= $start_t && $t < $finish_t) {
 					// switch is meant to be on, set the first off time as the next action
 					$switch['state'] = 'ON';
-					if ($forced) {
-						$switch['state'] = 'FORCEON';
-					}
 					$switch['nextevent'] = $finish_t;
 				} else {
 					// not in the time range, switch light back off and schedule on time
 					$switch['state'] = 'OFF';
-					if ($forced) {
-						$switch['state'] = 'FORCEOFF';
-					}
 					$switch['nextevent'] = $start_t;
 				}
 				break;
@@ -608,7 +602,7 @@ function Initialize() {
 
 	// retrieve all switch definitions
 	// add fake field count to the switches table... for ist-soll comparison
-	$query = "SELECT Switch.id as sid, Switch.tstamp, nextevent, description, idroom, location, strategy, command, kaku, time_on, time_off, state, duration, duration as count, olddim FROM Switch,Sensor WHERE Sensor.id = Switch.sensor_id ORDER BY Switch.id";
+	$query = "SELECT Switch.id as sid, Switch.tstamp, nextevent, description, idroom, location, strategy, command, kaku, time_on, time_off, state, duration, olddim+1 as count, olddim FROM Switch,Sensor WHERE Sensor.id = Switch.sensor_id ORDER BY Switch.id";
 	if (($remres = mysql_query ($query, $remote))===false) {
 		$message = date('Y-m-d H:i') . " Controller: Could not read Contao database " . mysql_error($remote);
 		System_Daemon::notice($message);
