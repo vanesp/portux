@@ -13,10 +13,14 @@
 //
 // </copyright>
 // <author>Peter van Es</author>
-// <version>1.4</version>
+// <version>1.5</version>
 // <email>vanesp@escurio.com</email>
-// <date>2014-11-11</date>
+// <date>2016-03-05</date>
 // <summary>controller receives messages from pub/sub redis and acts upon them</summary>
+
+// version 1.5... really fix forced on and forced off
+// if forced on is on, we keep it forced on until an external off command is received
+// forced off only stays off til the next deadline event...
 
 // version 1.4
 
@@ -70,6 +74,36 @@
  * /var/log/simple.log
  *
  */
+
+/*
+What happens when the light is switched on
+
+(Output from redis-cli, monitor)
+
+
+1457178061.034996 [0 127.0.0.1:48772] "PUBLISH" "ss:event" "{\"e\":\"newMessage\",\"t\":\"all\",\"p\":\"Direction=Input, Source=RF, Event=(KAKU E1,On)\"}"
+1457178061.049077 [1 127.0.0.1:41522] "PUBLISH" "ss:event" "{\"t\":\"all\",\"e\":\"portux\",\"p\":{\"type\":\"Switch\",\"location\":\"Kastenlicht\",\"quantity\":\"SendKAKU E1,\",\"value\":true}}"
+1457178061.718327 [0 127.0.0.1:48772] "PUBLISH" "ss:event" "{\"e\":\"newMessage\",\"t\":\"all\",\"p\":\"Direction=Input, Source=RF, Event=(0x7FFFFF)\"}"
+1457178062.257412 [0 127.0.0.1:48772] "PUBLISH" "ss:event" "{\"e\":\"newMessage\",\"t\":\"all\",\"p\":\"Direction=Output, Source=RF, Event=(KAKU E1,On)\"}"
+
+And then after a while...
+
+1457178277.714912 [1 127.0.0.1:53759] "PUBLISH" "ss:event" "{\"t\":\"all\",\"e\":\"portux\",\"p\":{\"type\":\"Tick\",\"location\":\"\",\"quantity\":\"\",\"value\":1457178277}}"
+1457178277.721939 [1 127.0.0.1:41522] "GET" "Woonkamer:Light"
+1457178277.725879 [1 127.0.0.1:41522] "PUBLISH" "ss:event" "{\"t\":\"all\",\"e\":\"portux\",\"p\":{\"type\":\"Switch\",\"location\":\"Plafondlamp\",\"quantity\":\"SendKAKU E3,\",\"value\":false}}"
+1457178277.743530 [0 127.0.0.1:48772] "PUBLISH" "ss:event" "{\"e\":\"newMessage\",\"t\":\"all\",\"p\":\"Direction=Output, Source=RF, Event=(KAKU E3,Off)\"}"
+
+and again a little later...
+
+1457178337.734516 [1 127.0.0.1:53759] "PUBLISH" "ss:event" "{\"t\":\"all\",\"e\":\"portux\",\"p\":{\"type\":\"Tick\",\"location\":\"\",\"quantity\":\"\",\"value\":1457178337}}"
+1457178337.745395 [1 127.0.0.1:41522] "GET" "Woonkamer:Light"
+1457178337.749108 [1 127.0.0.1:41522] "PUBLISH" "ss:event" "{\"t\":\"all\",\"e\":\"portux\",\"p\":{\"type\":\"Switch\",\"location\":\"Kastenlicht\",\"quantity\":\"SendKAKU E1,\",\"value\":false}}"
+1457178337.767504 [0 127.0.0.1:48772] "PUBLISH" "ss:event" "{\"e\":\"newMessage\",\"t\":\"all\",\"p\":\"Direction=Output, Source=RF, Event=(KAKU E1,Off)\"}"
+
+And the lights are switched off...
+
+
+*/
 
 // Global data structure
 $debug = false;
@@ -258,12 +292,8 @@ function handleIncoming($str) {
 			foreach ($switches as $key => &$switch) {
 				if ($switch['kaku'] === $ident) {
 					if ($newstate === 'FORCEON') {
-						// pressing 2x toggles the force status
-						if ($switch['state'] === 'FORCEON') {
-							$switch['state'] = 'ON';
-						} else {
-							$switch['state'] = 'FORCEON';
-						}
+						// always keep it FORCEON until off is pressed
+						$switch['state'] = 'FORCEON';
 						// if it is forced on, do not switch off till the normal off time
 						$switch['time_off'] = '00:30';	// switch off at 30 past midnight
 						if (time() > strtotime("today ".$switch['time_off'])) {
@@ -275,10 +305,10 @@ function handleIncoming($str) {
 					}
 					if ($newstate === 'FORCEOFF') {
 						// pressing 2x toggles the force status
-						if ($switch['state'] === 'FORCEOFF') {
-							$switch['state'] = 'OFF';
-						} else {
+						if ($switch['state'] === 'OFF') {
 							$switch['state'] = 'FORCEOFF';
+						} else {
+							$switch['state'] = 'OFF';
 						}
 						// if it is forced off, then we leave it off till the next event time
 						$switch['time_on'] = $sunset;  // switch on at sunset tomorrow
@@ -487,76 +517,81 @@ function handleTick() {
 					$switch['time_on'] = $sunset;
 					// $switch['nextevent'] = strtotime("today ".$switch['time_on']);
 				}
-				// so drop through to the next set, where also the forced items get reset
+				// so drop through to the next set, but DO NOT do it if it is forced
 			case 'time':
-				if (time() > $switch['nextevent']) {
-					// time for action
-					if (!$active) {
-						$switch['state'] = 'ON';
-						sendCommand ($key,'On');
-						$changed = true;
-					} else {
-						// it is time to switch off
-						$switch['state'] = 'OFF';
-						sendCommand ($key,'Off');
-						$changed = true;
-					}
-				}
-
-				// deal with the case where the time_off time is tomorrow
-				$start_t = strtotime("today ".$switch['time_on']);
-				$finish_t = strtotime("today ".$switch['time_off']);
-				if ($start_t >= $finish_t) $finish_t = strtotime("tomorrow ".$switch['time_off']);
-				$t = time();
-
-				// make sure the next time for action is set ok
-				if ($t >= $start_t && $t < $finish_t) {
-					// switch is meant to be on, set the first off time as the next action
-					$switch['state'] = 'ON';
-					$switch['nextevent'] = $finish_t;
-				} else {
-					// not in the time range, switch light back off and schedule on time
-					$switch['state'] = 'OFF';
-					$switch['nextevent'] = $start_t;
-				}
-				break;
-			case 'simulate':
-				// in the evening, random on periods... calculate a duration
-				switch ($switch['state']) {
-					case 'OFF':
-						// schedule a new time in the evening interval
-						$switch['duration'] = rand (15, 120);	// random between 15 minutes and two hours
-						$start = rand (60,180);					// start time
-						$on = strtotime("today ".$sunset." + ".$start." min");
-						$off = strtotime("today ".$switch['time_on']." + ".$switch['duration']." min");
-						$switch['time_on'] = date ("H:i", $on);
-						$switch['time_off'] = date ("H:i", $off);
-						$switch['nextevent'] = $on;	 // set the next event time
-						$switch['state'] = 'SCHED';
-						$changed = true;
-						break;
-					case 'ON':
-						if ((time() >= $switch['nextevent']) && $active) {
+				if (!forced) {
+					if (time() > $switch['nextevent']) {
+						// time for action
+						if (!$active) {
+							$switch['state'] = 'ON';
+							sendCommand ($key,'On');
+							$changed = true;
+						} else {
 							// it is time to switch off
 							$switch['state'] = 'OFF';
 							sendCommand ($key,'Off');
 							$changed = true;
 						}
-						break;
-					case 'SCHED':
-						if ((time() >= $switch['nextevent']) && !$active) {
-							// we've scheduled, and it's time to switch on
-							$switch['state'] = 'ON';
-							$switch['nextevent'] = strtotime($switch['time_off']);		// set the next event time
-							sendCommand ($key,'On');
-							$changed = true;
-						}
-					default:
-						break;
+					}
+
+					// deal with the case where the time_off time is tomorrow
+					$start_t = strtotime("today ".$switch['time_on']);
+					$finish_t = strtotime("today ".$switch['time_off']);
+					if ($start_t >= $finish_t) $finish_t = strtotime("tomorrow ".$switch['time_off']);
+					$t = time();
+
+					// make sure the next time for action is set ok
+					if ($t >= $start_t && $t < $finish_t) {
+						// switch is meant to be on, set the first off time as the next action
+						$switch['state'] = 'ON';
+						$switch['nextevent'] = $finish_t;
+					} else {
+						// not in the time range, switch light back off and schedule on time
+						$switch['state'] = 'OFF';
+						$switch['nextevent'] = $start_t;
+					}
 				}
 				break;
+			case 'simulate':
+				// in the evening, random on periods... calculate a duration
+				if (!forced) {
+					switch ($switch['state']) {
+						case 'OFF':
+							// schedule a new time in the evening interval
+							$switch['duration'] = rand (15, 120);	// random between 15 minutes and two hours
+							$start = rand (60,180);					// start time
+							$on = strtotime("today ".$sunset." + ".$start." min");
+							$off = strtotime("today ".$switch['time_on']." + ".$switch['duration']." min");
+							$switch['time_on'] = date ("H:i", $on);
+							$switch['time_off'] = date ("H:i", $off);
+							$switch['nextevent'] = $on;	 // set the next event time
+							$switch['state'] = 'SCHED';
+							$changed = true;
+							break;
+						case 'ON':
+							if ((time() >= $switch['nextevent']) && $active) {
+								// it is time to switch off
+								$switch['state'] = 'OFF';
+								sendCommand ($key,'Off');
+								$changed = true;
+							}
+							break;
+						case 'SCHED':
+							if ((time() >= $switch['nextevent']) && !$active) {
+								// we've scheduled, and it's time to switch on
+								$switch['state'] = 'ON';
+								$switch['nextevent'] = strtotime($switch['time_off']);		// set the next event time
+								sendCommand ($key,'On');
+								$changed = true;
+							}
+						default:
+							break;
+					}
+					break;
+				}
 
 			case 'light':
+			if (!forced) {
 				// get the most recent light value
 				$light = intval($publish->get ($switch['location'].':Light'));
 				// check if the light is forced, then don't do anything...
@@ -574,6 +609,8 @@ function handleTick() {
 					sendCommand ($key,'Off');
 					$changed = true;
 				}
+			}
+			
 			case 'event':
 				// currently not yet used
 				break;
@@ -753,10 +790,10 @@ $sunrise = date_sunrise (time(), SUNFUNCS_RET_STRING, $latitude, $longitude, $ze
 $sunset = date_sunset (time(), SUNFUNCS_RET_STRING, $latitude, $longitude, $zenith, $offset);
 
 $timestate = 0;
-if (time() > $sunrise_t - 2*60 ) $timestate = 1;
-if (time() > $sunrise_t) $timestate = 2;
-if (time() > $sunset_t - 2*60) $timestate = 3;
-if (time() > $sunset_t) $timestate = 4;
+if (time() > $sunrise_t - 2*60 ) $timestate = 1;	// morning
+if (time() > $sunrise_t) $timestate = 2;			// sun up
+if (time() > $sunset_t - 2*60) $timestate = 3;		// dusk
+if (time() > $sunset_t) $timestate = 4;				// dark
 
 // reset all switches and show what we have
 resetAll();
