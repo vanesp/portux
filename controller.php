@@ -76,10 +76,7 @@
  */
 
 /*
-What happens when the light is switched on
-
-(Output from redis-cli, monitor)
-
+What happens when the light is switched on (Output from redis-cli, monitor)
 
 1457178061.034996 [0 127.0.0.1:48772] "PUBLISH" "ss:event" "{\"e\":\"newMessage\",\"t\":\"all\",\"p\":\"Direction=Input, Source=RF, Event=(KAKU E1,On)\"}"
 1457178061.049077 [1 127.0.0.1:41522] "PUBLISH" "ss:event" "{\"t\":\"all\",\"e\":\"portux\",\"p\":{\"type\":\"Switch\",\"location\":\"Kastenlicht\",\"quantity\":\"SendKAKU E1,\",\"value\":true}}"
@@ -101,7 +98,6 @@ and again a little later...
 1457178337.767504 [0 127.0.0.1:48772] "PUBLISH" "ss:event" "{\"e\":\"newMessage\",\"t\":\"all\",\"p\":\"Direction=Output, Source=RF, Event=(KAKU E1,Off)\"}"
 
 And the lights are switched off...
-
 
 */
 
@@ -414,7 +410,7 @@ function resetAll() {
 				break;
 			case 'evening':
 				if (!isset($switch['time_off'])) {
-					$switch['time_off'] = "00:00";	// this time is normally in the record, do not overwrite
+					$switch['time_off'] = "00:30";	// this time is normally in the record, do not overwrite
 				}
 				$switch['time_on'] = $sunset;
 			case 'time':
@@ -507,6 +503,7 @@ function handleTick() {
 				if (!$forced) {
 					$switch['time_off'] = $sunrise;	 // switch off at sunrise
 					$switch['time_on'] = $sunset;
+					$switch['nextevent'] = time();
 				}
 				// processing is the same for the next two sets...
 			case 'evening':
@@ -515,11 +512,11 @@ function handleTick() {
 					// processing is identical to time, except that the time-on is set to sunset...
 					// time off is in the record
 					$switch['time_on'] = $sunset;
-					// $switch['nextevent'] = strtotime("today ".$switch['time_on']);
+					$switch['nextevent'] = strtotime("today ".$switch['time_on']);
 				}
 				// so drop through to the next set, but DO NOT do it if it is forced
 			case 'time':
-				if (!forced) {
+				if (!$forced) {
 					if (time() > $switch['nextevent']) {
 						// time for action
 						if (!$active) {
@@ -554,7 +551,7 @@ function handleTick() {
 				break;
 			case 'simulate':
 				// in the evening, random on periods... calculate a duration
-				if (!forced) {
+				if (!$forced) {
 					switch ($switch['state']) {
 						case 'OFF':
 							// schedule a new time in the evening interval
@@ -591,7 +588,7 @@ function handleTick() {
 				}
 
 			case 'light':
-			if (!forced) {
+			if (!$forced) {
 				// get the most recent light value
 				$light = intval($publish->get ($switch['location'].':Light'));
 				// check if the light is forced, then don't do anything...
@@ -610,7 +607,7 @@ function handleTick() {
 					$changed = true;
 				}
 			}
-			
+
 			case 'event':
 				// currently not yet used
 				break;
